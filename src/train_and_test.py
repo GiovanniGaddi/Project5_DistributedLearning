@@ -4,6 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms, models
 import time
+from models.lenet5 import leNet5
 
 # Hyperparameters
 batch_size = 64
@@ -31,11 +32,8 @@ train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-# Load MobileNetV2 pre-trained on ImageNet
-model = models.mobilenet_v2(pretrained=True)
-
-# Modify the classifier layer to match CIFAR-100 (100 classes)
-model.classifier[1] = nn.Linear(model.classifier[1].in_features, 100)
+# Define a LeNet-5 model
+model = leNet5()
 
 # Move model to GPU if available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -43,7 +41,7 @@ model = model.to(device)
 
 # Loss function and optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
 
 # Training loop with validation
 def train_model():
@@ -86,7 +84,7 @@ def train_model():
         # Save the model with the best accuracy on the validation set
         if val_acc > best_acc:
             best_acc = val_acc
-            torch.save(model.state_dict(), 'mobilenetv2_cifar100_best.pth')
+            torch.save(model.state_dict(), 'lenet5_cifar100_best.pth')
 
         print(f"Epoch time: {time.time() - start_time:.2f} seconds")
 
