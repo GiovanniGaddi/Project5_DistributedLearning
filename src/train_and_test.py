@@ -4,49 +4,91 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms, models
 import time
+import os
 from models.lenet5 import leNet5
+from utils.parser import Parser
 
-# Hyperparameters
-batch_size = 64
-num_epochs = 20
-learning_rate = 0.001
+
 validation_split = 0.1  # 10% of the training data will be used for validation
 
-# Transformations to apply to the dataset (including normalization)
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  # CIFAR-100 mean/std
-])
+def load_cifar100():
+    # Transformations to apply to the dataset (including normalization)
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  # CIFAR-100 mean/std
+    ])
 
-# Load CIFAR-100 dataset
-train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transform)
-test_dataset = datasets.CIFAR100(root='./data', train=False, download=True, transform=transform)
+    # Load CIFAR-100 dataset
+    train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transform)
+    test_dataset = datasets.CIFAR100(root='./data', train=False, download=True, transform=transform)
 
-# Split the training dataset into training and validation sets
-train_size = int((1 - validation_split) * len(train_dataset))
-val_size = len(train_dataset) - train_size
-train_subset, val_subset = random_split(train_dataset, [train_size, val_size])
+    # Split the training dataset into training and validation sets
+    train_size = int((1 - validation_split) * len(train_dataset))
+    val_size = len(train_dataset) - train_size
+    train_subset, val_subset = random_split(train_dataset, [train_size, val_size])
 
-# Create DataLoaders for training, validation, and test sets
-train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    # Create DataLoaders for training, validation, and test sets
+    train_loader = DataLoader(train_subset, batch_size=config.model.batch_size, shuffle=True)
+    val_loader = DataLoader(val_subset, batch_size=config.model.batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=config.model.batch_size, shuffle=False)
+    return train_loader, val_loader, test_loader 
 
-# Define a LeNet-5 model
-model = leNet5()
+#Save checkpoint
+def save_checkpoint(epoch, model, optimizer, best_acc, loss, config):
+    checkpoint = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'best_acc': best_acc,
+        'loss': loss
+    }
+    torch.save(checkpoint, os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
 
-# Move model to GPU if available
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = model.to(device)
+def load_checkpoint(config, model, optimizer):
+        checkpoint = load_checkpoint(os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        trainin_state = {}
+        trainin_state.start_epoch = checkpoint['epoch'] + 1
+        trainin_state.best_acc = checkpoint['best_acc']
+        trainin_state.loss = checkpoint['loss']
 
-# Loss function and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
+        return model, optimizer, trainin_state
+
+def sel_model(config):
+    assert config.model.name, "Model not selected"
+    # Define a LeNet-5 model
+    if config.model.name == 'LeNet':
+        model = leNet5()
+    return model
+
+def sel_device(device):
+    assert device, "Invalid selected Device"
+    if device == 'gpu' and torch.cuda.is_available():
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+    return device
+    
+def sel_optimizer(config, model):
+    assert config.model.optimizer, "Model not selected"
+    if config.model.optimizer == 'AdamW':
+        optimizer = optim.AdamW(model.parameters(), lr=config.model.learning_rate)
+    return optimizer
+
+def sel_loss(config):
+    assert config.model.loss, "Loss not selected"
+    if config.model.loss == 'CSE':
+        criterion = nn.CrossEntropyLoss()
+    return criterion
 
 # Training loop with validation
-def train_model():
-    best_acc = 0.0
-    for epoch in range(num_epochs):
+def train_model(config, train_loader, val_loader, model, device, optimizer, criterion, checkpoint = None):
+    
+    best_acc = 0.0 if checkpoint is None else checkpoint.best_acc
+    start_epoch = 0 if checkpoint is None else checkpoint.start_epoch
+
+    for epoch in range(start_epoch, config.model.epochs):
         model.train()
         running_loss = 0.0
         correct = 0
@@ -75,21 +117,21 @@ def train_model():
 
         epoch_loss = running_loss / len(train_loader)
         epoch_acc = 100 * correct / total
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
+        print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
 
         # Validate the model on the validation set
-        val_acc = validate_model()
+        val_acc = validate_model(val_loader, model)
         print(f'Validation Accuracy: {val_acc:.2f}%')
 
         # Save the model with the best accuracy on the validation set
         if val_acc > best_acc:
             best_acc = val_acc
-            torch.save(model.state_dict(), 'lenet5_cifar100_best.pth')
+            save_checkpoint(epoch, model, optimizer, best_acc, epoch_loss, config)
 
         print(f"Epoch time: {time.time() - start_time:.2f} seconds")
 
 # Validation function
-def validate_model():
+def validate_model(val_loader, model):
     model.eval()  # Set model to evaluation mode
     correct = 0
     total = 0
@@ -105,7 +147,7 @@ def validate_model():
     return accuracy
 
 # Evaluate model performance on test set
-def evaluate_model():
+def evaluate_model(test_loader, model):
     model.eval()  # Set model to evaluation mode
     correct = 0
     total = 0
@@ -120,6 +162,21 @@ def evaluate_model():
     accuracy = 100 * correct / total
     print(f'Test Accuracy: {accuracy:.2f}%')
 
-# Run training and evaluation
-train_model()
-evaluate_model()
+if __name__ == '__main__':
+    parser = Parser('src/config/Lenet.yaml')
+    config, device = parser.parse_args()
+    
+    train_loader, val_loader, test_loader = load_cifar100()
+
+    model = sel_model(config)
+    device = sel_device(config)
+    model = model.to(device)
+    loss_function = sel_loss(config)
+    optimizer = sel_optimizer(config, model)
+    
+    if config.experiment.resume:
+        model, optimizer, checkpoint = load_checkpoint(config)
+    
+      
+    train_model(config, train_loader, val_loader, model, device, optimizer, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
+    evaluate_model(test_loader, model)
