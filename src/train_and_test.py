@@ -9,9 +9,14 @@ from models.lenet5 import leNet5
 from utils.parser import Parser
 
 
+# [ ] Plot
+# [ ] Worker/Setquential Training
+# [ ] Scheduler
+# [ ] Optimizer
+
 validation_split = 0.1  # 10% of the training data will be used for validation
 
-def load_cifar100():
+def load_cifar100(config):
     # Transformations to apply to the dataset (including normalization)
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -45,7 +50,7 @@ def save_checkpoint(epoch, model, optimizer, best_acc, loss, config):
     torch.save(checkpoint, os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
 
 def load_checkpoint(config, model, optimizer):
-        checkpoint = load_checkpoint(os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
+        checkpoint = torch.load(os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         trainin_state = {}
@@ -166,7 +171,7 @@ if __name__ == '__main__':
     parser = Parser('src/config/Lenet.yaml')
     config, device = parser.parse_args()
     
-    train_loader, val_loader, test_loader = load_cifar100()
+    train_loader, val_loader, test_loader = load_cifar100(config)
 
     model = sel_model(config)
     device = sel_device(config)
