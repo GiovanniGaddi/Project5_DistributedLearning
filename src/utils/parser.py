@@ -2,10 +2,17 @@ import yaml
 import os
 from pathlib import Path
 from argparse import ArgumentParser
-from utils.config import Config
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
+
+
+from conf import Config
 
 class Parser():
     def __init__(self, config_path:Path=None):
+        
         self.parser = ArgumentParser()
         self.config_path = config_path
 
@@ -22,6 +29,9 @@ class Parser():
         
         self.parser.add_argument('-en', '--experiment_name', type=str, dest='EXPERIMENT_NAME', help='Change Experiment')
         self.parser.add_argument('-v', '--version', type=float, dest='VERSION', help='Update Version')
+
+        self.parser.add_argument('-opt', '--optimizer', type=str, dest='OPTIMIZER', help='Overrides previously set optimizer')
+        self.parser.add_argument('-sch', '--scheduler', type=str, dest='SCHEDULER', help='Overrides previously set scheduler')
 
     def parse_args(self):
         self.args = self.parser.parse_args()
@@ -42,7 +52,7 @@ class Parser():
             config.model.epochs = self.args.EPOCHS
 
         if self.args.PRETRAINED is not None:
-            config.model.pretreined = self.args.PRETRAINED
+            config.model.pretrained = self.args.PRETRAINED
 
         if self.args.CHECKPOINT is not None:
             config.experiment.resume = self.args.CHECKPOINT
@@ -55,6 +65,12 @@ class Parser():
 
         if self.args.VERSION is not None:
             config.experiment.version = self.args.VERSION
+        
+        if self.args.OPTIMIZER is not None:
+            config.model.optimizer = self.args.OPTIMIZER
+
+        if self.args.SCHEDULER is not None:
+            config.model.scheduler = self.args.SCHEDULER
         
         config.checkpoint.dir = os.path.join(config.checkpoint.dir,config.experiment.name)
         os.makedirs(config.checkpoint.dir, exist_ok=True)

@@ -5,8 +5,10 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms, models
 import time
 import os
+from pathlib import Path
 from models.lenet5 import leNet5
 from utils.parser import Parser
+from utils.plot import plot_metrics
 
 
 # [ ] Plot
@@ -39,26 +41,29 @@ def load_cifar100(config):
     return train_loader, val_loader, test_loader 
 
 #Save checkpoint
-def save_checkpoint(epoch, model, optimizer, best_acc, loss, config):
+def save_checkpoint(epoch, model, optimizer, scheduler, best_acc, loss, config):
     checkpoint = {
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
         'best_acc': best_acc,
         'loss': loss
     }
     torch.save(checkpoint, os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
 
-def load_checkpoint(config, model, optimizer):
+def load_checkpoint(config, model, optimizer, scheduler):
         checkpoint = torch.load(os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
         trainin_state = {}
         trainin_state.start_epoch = checkpoint['epoch'] + 1
         trainin_state.best_acc = checkpoint['best_acc']
         trainin_state.loss = checkpoint['loss']
 
-        return model, optimizer, trainin_state
+        return model, optimizer, scheduler, trainin_state
 
 def sel_model(config):
     assert config.model.name, "Model not selected"
@@ -76,9 +81,13 @@ def sel_device(device):
     return device
     
 def sel_optimizer(config, model):
-    assert config.model.optimizer, "Model not selected"
+    assert config.model.optimizer, "Optimizer not selected"
     if config.model.optimizer == 'AdamW':
         optimizer = optim.AdamW(model.parameters(), lr=config.model.learning_rate)
+    elif config.model.optimizer == "SGDM":
+        optimizer = optim.SGD(model.parameters(), lr=config.model.learning_rate, momentum=0.9)
+    else:
+        raise ValueError(f"Unsupported optimizer: {config.model.optimizer}")
     return optimizer
 
 def sel_loss(config):
@@ -87,9 +96,24 @@ def sel_loss(config):
         criterion = nn.CrossEntropyLoss()
     return criterion
 
+def sel_scheduler(config, optimizer):
+    assert config.model.scheduler, "Scheduler not selected"
+    if config.model.scheduler == 'CosineAnnealingLR':
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=config.model.epochs, eta_min=1e-5
+        )
+    else:
+        raise ValueError(f"Unsupported scheduler: {config.scheduler.name}")
+    return scheduler
+
 # Training loop with validation
-def train_model(config, train_loader, val_loader, model, device, optimizer, criterion, checkpoint = None):
+def train_model(config, train_loader, val_loader, model, device, optimizer, scheduler, criterion, checkpoint = None):
     
+    train_losses = []
+    train_accuracies = []
+    val_losses = []
+    val_accuracies = []
+
     best_acc = 0.0 if checkpoint is None else checkpoint.best_acc
     start_epoch = 0 if checkpoint is None else checkpoint.start_epoch
 
@@ -123,33 +147,49 @@ def train_model(config, train_loader, val_loader, model, device, optimizer, crit
         epoch_loss = running_loss / len(train_loader)
         epoch_acc = 100 * correct / total
         print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
+        
+        train_losses.append(epoch_loss)
+        train_accuracies.append(epoch_acc)
+
+        scheduler.step()
 
         # Validate the model on the validation set
-        val_acc = validate_model(val_loader, model)
+        val_loss, val_acc = validate_model(val_loader, criterion, model)
         print(f'Validation Accuracy: {val_acc:.2f}%')
+
+        val_losses.append(val_loss)
+        val_accuracies.append(val_acc)
 
         # Save the model with the best accuracy on the validation set
         if val_acc > best_acc:
             best_acc = val_acc
-            save_checkpoint(epoch, model, optimizer, best_acc, epoch_loss, config)
+            save_checkpoint(epoch, model, optimizer, scheduler, best_acc, epoch_loss, config)
 
         print(f"Epoch time: {time.time() - start_time:.2f} seconds")
+        
+    plot_metrics(train_losses, train_accuracies, val_losses, val_accuracies)
 
 # Validation function
-def validate_model(val_loader, model):
+def validate_model(val_loader, criterion, model):
     model.eval()  # Set model to evaluation mode
     correct = 0
     total = 0
+    running_loss = 0.0
+
     with torch.no_grad():
         for inputs, labels in val_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            running_loss += loss.item()
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
     accuracy = 100 * correct / total
-    return accuracy
+    loss = running_loss / len(val_loader)
+    return loss, accuracy
+    
 
 # Evaluate model performance on test set
 def evaluate_model(test_loader, model):
@@ -168,7 +208,10 @@ def evaluate_model(test_loader, model):
     print(f'Test Accuracy: {accuracy:.2f}%')
 
 if __name__ == '__main__':
-    parser = Parser('src/config/Lenet.yaml')
+    script_dir = Path(__file__).parent
+
+    yaml_path = script_dir / 'config' / 'Lenet.yaml'    
+    parser = Parser(yaml_path)
     config, device = parser.parse_args()
     
     train_loader, val_loader, test_loader = load_cifar100(config)
@@ -178,10 +221,11 @@ if __name__ == '__main__':
     model = model.to(device)
     loss_function = sel_loss(config)
     optimizer = sel_optimizer(config, model)
+    scheduler = sel_scheduler(config, optimizer)
     
     if config.experiment.resume:
-        model, optimizer, checkpoint = load_checkpoint(config)
+        model, optimizer, scheduler, checkpoint = load_checkpoint(config)
     
       
-    train_model(config, train_loader, val_loader, model, device, optimizer, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
+    train_model(config, train_loader, val_loader, model, device, optimizer, scheduler, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
     evaluate_model(test_loader, model)

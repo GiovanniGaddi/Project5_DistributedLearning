@@ -11,7 +11,7 @@ class ModelConfig(BaseModel):
     loss: str
     optimizer: str
     scheduler: str
-    pretreined: Optional[Path] = None
+    pretrained: Optional[Path] = None
     test: bool
 
 class ExperimentConfig(BaseModel):
