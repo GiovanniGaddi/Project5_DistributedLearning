@@ -11,10 +11,10 @@ from utils.parser import Parser
 from utils.plot import plot_metrics
 
 
-# [ ] Plot
-# [ ] Worker/Setquential Training
-# [ ] Scheduler
-# [ ] Optimizer
+# [X] Plot
+# [ ] Worker/Sequential Training
+# [X] Scheduler
+# [X] Optimizer
 
 validation_split = 0.1  # 10% of the training data will be used for validation
 
@@ -166,7 +166,7 @@ def train_model(config, train_loader, val_loader, model, device, optimizer, sche
             save_checkpoint(epoch, model, optimizer, scheduler, best_acc, epoch_loss, config)
 
         print(f"Epoch time: {time.time() - start_time:.2f} seconds")
-        
+
     plot_metrics(train_losses, train_accuracies, val_losses, val_accuracies)
 
 # Validation function
