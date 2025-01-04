@@ -13,6 +13,7 @@ class ModelConfig(BaseModel):
     scheduler: str
     pretreined: Optional[Path] = None
     test: bool
+    num_nodes: int
 
 class ExperimentConfig(BaseModel):
     name: str

@@ -2,16 +2,18 @@ from torch import nn
 
 class leNet5(nn.Module):
 
-    def __init__(self):
+    def __init__(self, learning_rate=1e-3, momentum=0.9):
         super().__init__()
+        self.learning_rate = learning_rate
+        self.momentum = momentum
         self.feature = nn.Sequential(
-            # first convolutional layer - input 3*32*32 -> output 24*28*28 
-            nn.Conv2d(in_channels=3, out_channels=24, kernel_size=5, stride=1),
+            # first convolutional layer - input 3*32*32 -> output 64*28*28 
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=5, stride=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),  # 24*14*14
+            nn.MaxPool2d(kernel_size=2, stride=2),  # 64*14*14
             
-            # second convolutional layer - input 24*14*14 -> output 64*10*10 
-            nn.Conv2d(in_channels=24, out_channels=64, kernel_size=5, stride=1),
+            # second convolutional layer - input 64*14*14 -> output 64*10*10 
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),  # 64*5*5
         )
