@@ -11,23 +11,47 @@ from utils.parser import Parser
 from utils.plot import plot_metrics
 
 
+'''
+Best results for centralized at 150 epochs:
+- SGDM, lr 0.01, momentum 0.9, weight decay 4e-4: test accuracy 52.28%
+- SGDM, lr 0.01, momentum 0.9, weight decay 4e-3: test accuracy 55.10%
+- AdamW, lr 0.001, weight decay 0.01: test accuracy 49,56%
+- AdamW, lr 0.001, weight decay 0.1: test accuracy 49,97%
+
+'''
 # [X] Plot
 # [ ] Worker/Sequential Training
 # [X] Scheduler
 # [X] Optimizer
 
+# Next steps to end part 3:
+# [ ] LAMB&LARS + hyperparameter tuning and comparison
+# [ ] IID sharding and training with LocalSGD
+# [ ] Performing multiple local steps, scaling the number of iteration
+# [ ] Using two optimizers: one for the outer loop and one for the inner loop (+ analysis)
+
 validation_split = 0.1  # 10% of the training data will be used for validation
 
 def load_cifar100(config):
     # Transformations to apply to the dataset (including normalization)
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  # CIFAR-100 mean/std
+    # CIFAR-100 Training Transform
+    train_transform = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),  # Random crop to 32x32
+        transforms.RandomHorizontalFlip(),    # Random horizontal flip
+        transforms.ToTensor(),                # Convert to tensor
+        transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  # Normalize
+    ])
+
+    # CIFAR-100 Test Transform
+    test_transform = transforms.Compose([
+        transforms.CenterCrop(32),            # Central crop to 32x32
+        transforms.ToTensor(),                # Convert to tensor
+        transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  # Normalize
     ])
 
     # Load CIFAR-100 dataset
-    train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=transform)
-    test_dataset = datasets.CIFAR100(root='./data', train=False, download=True, transform=transform)
+    train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=train_transform)
+    test_dataset = datasets.CIFAR100(root='./data', train=False, download=True, transform=test_transform)
 
     # Split the training dataset into training and validation sets
     train_size = int((1 - validation_split) * len(train_dataset))
@@ -83,9 +107,9 @@ def sel_device(device):
 def sel_optimizer(config, model):
     assert config.model.optimizer, "Optimizer not selected"
     if config.model.optimizer == 'AdamW':
-        optimizer = optim.AdamW(model.parameters(), lr=config.model.learning_rate)
+        optimizer = optim.AdamW(model.parameters(), lr=config.model.learning_rate, weight_decay=0.04)
     elif config.model.optimizer == "SGDM":
-        optimizer = optim.SGD(model.parameters(), lr=config.model.learning_rate, momentum=0.9)
+        optimizer = optim.SGD(model.parameters(), lr=config.model.learning_rate, momentum=0.9, weight_decay=0.004)
     else:
         raise ValueError(f"Unsupported optimizer: {config.model.optimizer}")
     return optimizer
@@ -100,7 +124,7 @@ def sel_scheduler(config, optimizer):
     assert config.model.scheduler, "Scheduler not selected"
     if config.model.scheduler == 'CosineAnnealingLR':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=config.model.epochs, eta_min=1e-5
+            optimizer, T_max=config.model.epochs, eta_min=0
         )
     else:
         raise ValueError(f"Unsupported scheduler: {config.scheduler.name}")
