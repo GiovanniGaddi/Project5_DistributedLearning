@@ -7,10 +7,11 @@ import time
 import os
 from models.lenet5 import leNet5
 from utils.parser import Parser
+from copy import deepcopy
 
 
 # [ ] Plot
-# [ ] Worker/Setquential Training
+# [x] Worker/Sequential Training
 # [ ] Scheduler
 # [ ] Optimizer
 
@@ -33,7 +34,15 @@ def load_cifar100(config):
     train_subset, val_subset = random_split(train_dataset, [train_size, val_size])
 
     # Create DataLoaders for training, validation, and test sets
-    train_loader = DataLoader(train_subset, batch_size=config.model.batch_size, shuffle=True)
+    # Split train subset into num_nodes DataLoaders
+    train_loaders = []
+    #val_loaders = []
+    num_nodes = config.model.num_nodes
+    for i in range(num_nodes):
+        train_indices = train_subset[(train_size / num_nodes) * i: (train_size / num_nodes) * (i+1)]
+        train_loaders.append(DataLoader(train_indices, batch_size=config.model.batch_size, shuffle=True))
+        
+    #train_loader = DataLoader(train_subset, batch_size=config.model.batch_size, shuffle=True)
     val_loader = DataLoader(val_subset, batch_size=config.model.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=config.model.batch_size, shuffle=False)
     return train_loader, val_loader, test_loader 
@@ -64,7 +73,7 @@ def sel_model(config):
     assert config.model.name, "Model not selected"
     # Define a LeNet-5 model
     if config.model.name == 'LeNet':
-        model = leNet5()
+        model = leNet5(config.model.learning_rate)
     return model
 
 def sel_device(device):
@@ -87,6 +96,36 @@ def sel_loss(config):
         criterion = nn.CrossEntropyLoss()
     return criterion
 
+def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_size, momentum, num_nodes, device, synch_steps=50, local_steps=90):
+    for t in range(synch_steps):
+        list_models = [deepcopy(model) for i in range(num_nodes)]
+        list_gradients = []
+        for k in range(num_nodes):
+            for h in range(local_steps):
+                # take images and labels from dataloader
+                inputs, labels = training_data[k].dataset[t*h + h]
+                # transfer them to GPU
+                inputs, labels = inputs.to(device), labels.to(device)
+                # reset gradients
+                optimizer.zero_grad()
+
+                # local forward pass
+                outputs = list_models[k](inputs)
+                loss = criterion(outputs, labels)
+                
+                # local backward pass and optimization
+                loss.backward()
+                optimizer.step()
+
+            # keep local model's gradients
+            list_gradients.append(list_models[k].parameters())
+
+        # local models' gradients aggregation
+        reduced_gradients = [model.parameters() for _ in range(num_nodes)] - list_gradients
+
+        # wordlwide model's update
+        model = model.parameters() - model.learning_rate / num_nodes * sum(reduced_gradients)
+
 # Training loop with validation
 def train_model(config, train_loader, val_loader, model, device, optimizer, criterion, checkpoint = None):
     
@@ -101,24 +140,26 @@ def train_model(config, train_loader, val_loader, model, device, optimizer, crit
         start_time = time.time()
 
         # Training phase
-        for inputs, labels in train_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
+        # for inputs, labels in train_loader:
+        #     inputs, labels = inputs.to(device), labels.to(device)
 
-            optimizer.zero_grad()
+        #     optimizer.zero_grad()
 
-            # Forward pass
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
+        #     # Forward pass
+        #     outputs = model(inputs)
+        #     loss = criterion(outputs, labels)
 
-            # Backward pass and optimization
-            loss.backward()
-            optimizer.step()
+        #     # Backward pass and optimization
+        #     loss.backward()
+        #     optimizer.step()
 
-            # Track the loss and accuracy
-            running_loss += loss.item()
-            _, predicted = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+        #     # Track the loss and accuracy
+        #     running_loss += loss.item()
+        #     _, predicted = torch.max(outputs, 1)
+        #     total += labels.size(0)
+        #     correct += (predicted == labels).sum().item()
+
+        localSDG(model, train_loader, optimizer, criterion, 0, 10, 0.9, config.model.num_nodes, device)
 
         epoch_loss = running_loss / len(train_loader)
         epoch_acc = 100 * correct / total
