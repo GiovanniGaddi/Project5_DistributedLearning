@@ -4,11 +4,11 @@ model:
   batch_size: 64
   learning_rate: 1e-2
   loss: CSE
-  optimizer: AdamW
+  optimizer: SGD
   scheduler: try
   pretrained:
   test: False
-  num_nodes: 4
+  num_nodes: 2
 experiment:
   name: train_lenet_cifar100
   resume: False

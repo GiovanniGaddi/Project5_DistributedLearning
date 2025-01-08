@@ -167,6 +167,7 @@ share/
 
 
 #downloaded Data
-src/data/cifar*
+src/data/
+data/
 
 test*

@@ -17,7 +17,7 @@ from copy import deepcopy
 
 validation_split = 0.1  # 10% of the training data will be used for validation
 
-def split_dataset(dataset, k):
+def split_dataset(dataset, k=7):
     # Determine the sizes of each subset
     subset_size = len(dataset) // k
     remaining = len(dataset) % k
@@ -103,6 +103,8 @@ def sel_optimizer(config, model):
     assert config.model.optimizer, "Model not selected"
     if config.model.optimizer == 'AdamW':
         optimizer = optim.AdamW(model.parameters(), lr=config.model.learning_rate)
+    if config.model.optimizer == 'SGD':
+        optimizer = optim.SGD(model.parameters(), lr=config.model.learning_rate)
     return optimizer
 
 def sel_loss(config):
@@ -111,19 +113,20 @@ def sel_loss(config):
         criterion = nn.CrossEntropyLoss()
     return criterion
 
-def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_size, momentum, num_nodes, device, synch_steps=24, local_steps=16):
-    for t in range(synch_steps):
-        list_models = [deepcopy(model) for i in range(num_nodes)]
+def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_size, momentum, K, device, T=24, H=32):
+    for t in range(T):
+        list_models = [deepcopy(model) for i in range(K)]
+        tmp_optimizer = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate) for k in range(K)]
         list_gradients = []
-        for k in range(num_nodes):
-            tmp_optimizer = optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate)
-            for h in range(local_steps):
+        for k in range(K):
+            for h in range(H):
                 # take images and labels from dataloader
                 inputs, labels = next(iter(training_data[k]))
                 # transfer them to GPU
                 inputs, labels = inputs.to(device), labels.to(device)
                 # reset gradients
-                tmp_optimizer.zero_grad()
+                #tmp_optimizer[k].zero_grad()
+                list_models[k].zero_grad()
 
                 # local forward pass
                 outputs = list_models[k](inputs)
@@ -131,9 +134,13 @@ def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_si
                 
                 # local backward pass and optimization
                 loss.backward()
-                tmp_optimizer.step()
 
-            print("model ", k, ", loss = ", loss)
+                for param, global_param in zip(list_models[k].parameters(), model.parameters()):
+                    param = global_param - list_models[k].learning_rate * param.grad                
+
+                #tmp_optimizer[k].step()
+
+            print("model", k,", loss =", loss)
 
         list_gradients.append([param.grad for param in list_models[k].parameters()])
 
@@ -147,7 +154,7 @@ def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_si
         with torch.no_grad():
             for param, avg_grad in zip(model.parameters(), averaged_gradients):
                 param.grad = avg_grad
-                optimizer.step()
+                param -= model.learning_rate * param.grad
 
 # Training loop with validation
 def train_model(config, train_loader, val_loader, model, device, optimizer, criterion, checkpoint = None):
