@@ -17,6 +17,16 @@ from copy import deepcopy
 
 validation_split = 0.1  # 10% of the training data will be used for validation
 
+def split_dataset(dataset, k):
+    # Determine the sizes of each subset
+    subset_size = len(dataset) // k
+    remaining = len(dataset) % k
+    lengths = [subset_size + 1 if i < remaining else subset_size for i in range(k)]
+    
+    # Split the dataset
+    subsets = random_split(dataset, lengths)
+    return subsets
+
 def load_cifar100(config):
     # Transformations to apply to the dataset (including normalization)
     transform = transforms.Compose([
@@ -35,17 +45,22 @@ def load_cifar100(config):
 
     # Create DataLoaders for training, validation, and test sets
     # Split train subset into num_nodes DataLoaders
-    train_loaders = []
-    #val_loaders = []
-    num_nodes = config.model.num_nodes
-    for i in range(num_nodes):
-        train_indices = train_subset[(train_size / num_nodes) * i: (train_size / num_nodes) * (i+1)]
-        train_loaders.append(DataLoader(train_indices, batch_size=config.model.batch_size, shuffle=True))
-        
+    # train_loaders = []
+    # #val_loaders = []
+    # num_nodes = config.model.num_nodes
+    # for i in range(num_nodes):
+    #     train_indices = train_subset[(train_size / num_nodes) * i: (train_size / num_nodes) * (i+1)]
+    #     train_loaders.append(DataLoader(train_indices, batch_size=config.model.batch_size, shuffle=True))
+    train_subsets = split_dataset(train_subset, config.model.num_nodes)
+
+    # Create DataLoaders for each subset
+    batch_size = config.model.batch_size
+    train_loaders = [DataLoader(subset, batch_size=batch_size, shuffle=True) for subset in train_subsets]
+
     #train_loader = DataLoader(train_subset, batch_size=config.model.batch_size, shuffle=True)
     val_loader = DataLoader(val_subset, batch_size=config.model.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=config.model.batch_size, shuffle=False)
-    return train_loader, val_loader, test_loader 
+    return train_loaders, val_loader, test_loader 
 
 #Save checkpoint
 def save_checkpoint(epoch, model, optimizer, best_acc, loss, config):
@@ -96,18 +111,19 @@ def sel_loss(config):
         criterion = nn.CrossEntropyLoss()
     return criterion
 
-def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_size, momentum, num_nodes, device, synch_steps=50, local_steps=90):
+def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_size, momentum, num_nodes, device, synch_steps=24, local_steps=16):
     for t in range(synch_steps):
         list_models = [deepcopy(model) for i in range(num_nodes)]
         list_gradients = []
         for k in range(num_nodes):
+            tmp_optimizer = optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate)
             for h in range(local_steps):
                 # take images and labels from dataloader
-                inputs, labels = training_data[k].dataset[t*h + h]
+                inputs, labels = next(iter(training_data[k]))
                 # transfer them to GPU
                 inputs, labels = inputs.to(device), labels.to(device)
                 # reset gradients
-                optimizer.zero_grad()
+                tmp_optimizer.zero_grad()
 
                 # local forward pass
                 outputs = list_models[k](inputs)
@@ -115,16 +131,23 @@ def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_si
                 
                 # local backward pass and optimization
                 loss.backward()
+                tmp_optimizer.step()
+
+            print("model ", k, ", loss = ", loss)
+
+        list_gradients.append([param.grad for param in list_models[k].parameters()])
+
+        # Now, average gradients across all nodes
+        averaged_gradients = []
+        for param_gradients in zip(*list_gradients):
+            avg_grad = torch.mean(torch.stack(param_gradients), dim=0)
+            averaged_gradients.append(avg_grad)
+
+        # Apply averaged gradients to the global model
+        with torch.no_grad():
+            for param, avg_grad in zip(model.parameters(), averaged_gradients):
+                param.grad = avg_grad
                 optimizer.step()
-
-            # keep local model's gradients
-            list_gradients.append(list_models[k].parameters())
-
-        # local models' gradients aggregation
-        reduced_gradients = [model.parameters() for _ in range(num_nodes)] - list_gradients
-
-        # wordlwide model's update
-        model = model.parameters() - model.learning_rate / num_nodes * sum(reduced_gradients)
 
 # Training loop with validation
 def train_model(config, train_loader, val_loader, model, device, optimizer, criterion, checkpoint = None):
@@ -161,9 +184,9 @@ def train_model(config, train_loader, val_loader, model, device, optimizer, crit
 
         localSDG(model, train_loader, optimizer, criterion, 0, 10, 0.9, config.model.num_nodes, device)
 
-        epoch_loss = running_loss / len(train_loader)
-        epoch_acc = 100 * correct / total
-        print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
+        # epoch_loss = running_loss / len(train_loader)
+        # epoch_acc = 100 * correct / total
+        # print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
 
         # Validate the model on the validation set
         val_acc = validate_model(val_loader, model)
@@ -172,7 +195,7 @@ def train_model(config, train_loader, val_loader, model, device, optimizer, crit
         # Save the model with the best accuracy on the validation set
         if val_acc > best_acc:
             best_acc = val_acc
-            save_checkpoint(epoch, model, optimizer, best_acc, epoch_loss, config)
+            # save_checkpoint(epoch, model, optimizer, best_acc, epoch_loss, config)
 
         print(f"Epoch time: {time.time() - start_time:.2f} seconds")
 
