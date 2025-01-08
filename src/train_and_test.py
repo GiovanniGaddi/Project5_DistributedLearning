@@ -15,8 +15,8 @@ from utils.plot import plot_metrics
 Best results for centralized at 150 epochs:
 - SGDM, lr 0.01, momentum 0.9, weight decay 4e-4: test accuracy 52.28%
 - SGDM, lr 0.01, momentum 0.9, weight decay 4e-3: test accuracy 55.10%
-- AdamW, lr 0.001, weight decay 0.01: test accuracy 49,56%
-- AdamW, lr 0.001, weight decay 0.1: test accuracy 49,97%
+- AdamW, lr 0.001, weight decay 0.01: test accuracy 49.56%
+- AdamW, lr 0.001, weight decay 0.04: test accuracy 52.09%
 
 '''
 # [X] Plot
