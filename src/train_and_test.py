@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
-from torchvision import datasets, transforms, models
+from torchvision import datasets, transforms, models 
 import time
 import os
 from models.lenet5 import leNet5
@@ -17,7 +17,7 @@ from copy import deepcopy
 
 validation_split = 0.1  # 10% of the training data will be used for validation
 
-def split_dataset(dataset, k=7):
+def split_dataset(dataset, k):
     # Determine the sizes of each subset
     subset_size = len(dataset) // k
     remaining = len(dataset) % k
@@ -113,10 +113,21 @@ def sel_loss(config):
         criterion = nn.CrossEntropyLoss()
     return criterion
 
-def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_size, momentum, K, device, T=24, H=32):
+def deepcopy_model(model):
+    # a dirty hack....
+    tmp_model = deepcopy(model)
+    for tmp_para, para in zip(tmp_model.parameters(), model.parameters()):
+        if para.grad is not None:
+            tmp_para.grad = para.grad.clone()
+    return tmp_model
+
+def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_size, momentum, K, device, T=12, H=64):
     for t in range(T):
-        list_models = [deepcopy(model) for i in range(K)]
-        tmp_optimizer = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate) for k in range(K)]
+        list_models = [deepcopy_model(model) for i in range(K)]
+        #tmp_optimizer, tmp_scheduler = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate) for k in range(K)]
+        # scheduler = [optim.lr_scheduler.CosineAnnealingLR(
+        #         tmp_optimizer, T_max=H, eta_min=0
+        #     )
         list_gradients = []
         for k in range(K):
             for h in range(H):
@@ -126,7 +137,7 @@ def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_si
                 inputs, labels = inputs.to(device), labels.to(device)
                 # reset gradients
                 #tmp_optimizer[k].zero_grad()
-                list_models[k].zero_grad()
+                #list_models[k].zero_grad()
 
                 # local forward pass
                 outputs = list_models[k](inputs)
@@ -135,14 +146,18 @@ def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_si
                 # local backward pass and optimization
                 loss.backward()
 
+                # for param, global_param in zip(list_models[k].parameters(), model.parameters()):
+                #     param = param - list_models[k].learning_rate * param.grad
+
                 for param, global_param in zip(list_models[k].parameters(), model.parameters()):
-                    param = global_param - list_models[k].learning_rate * param.grad                
+                    param.data = global_param.data - list_models[k].learning_rate * param.grad
 
                 #tmp_optimizer[k].step()
 
             print("model", k,", loss =", loss)
 
-        list_gradients.append([param.grad for param in list_models[k].parameters()])
+        #list_gradients.append([param.grad for param in list_models[k].parameters()])
+        list_gradients.append([global_param - param for global_param, param in zip(model.parameters(), list_models[k].parameters())])
 
         # Now, average gradients across all nodes
         averaged_gradients = []
@@ -154,7 +169,7 @@ def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_si
         with torch.no_grad():
             for param, avg_grad in zip(model.parameters(), averaged_gradients):
                 param.grad = avg_grad
-                param -= model.learning_rate * param.grad
+                param.data -= model.learning_rate * param.grad
 
 # Training loop with validation
 def train_model(config, train_loader, val_loader, model, device, optimizer, criterion, checkpoint = None):
