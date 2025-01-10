@@ -1,6 +1,6 @@
 from matplotlib import pyplot as plt
 
-def plot_metrics(train_losses, train_accuracies, val_losses, val_accuracies):
+def plot_metrics(name, train_losses, train_accuracies, val_losses, val_accuracies):
     # Training and validation loss
     plt.figure(figsize=(12, 5))
 
@@ -22,4 +22,5 @@ def plot_metrics(train_losses, train_accuracies, val_losses, val_accuracies):
     plt.legend()
 
     plt.tight_layout()
+    #plt.savefig(name)
     plt.show()

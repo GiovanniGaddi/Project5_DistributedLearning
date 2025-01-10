@@ -4,33 +4,57 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms, models
 import time
+from copy import deepcopy
 import os
 from pathlib import Path
 from models.lenet5 import leNet5
 from utils.parser import Parser
 from utils.plot import plot_metrics
+from utils.optim import LAMB, LARS
 
 
 '''
 Best results for centralized at 150 epochs:
 - SGDM, lr 0.01, momentum 0.9, weight decay 4e-4: test accuracy 52.28%
-- SGDM, lr 0.01, momentum 0.9, weight decay 4e-3: test accuracy 55.10%
+- SGDM, lr 0.01, momentum 0.9, weight decay 4e-3: test accuracy 55.10%/55.50%
 - AdamW, lr 0.001, weight decay 0.01: test accuracy 49.56%
 - AdamW, lr 0.001, weight decay 0.04: test accuracy 52.09%
 
+Best results with large batch and warmup scheduler:
+- LAMB, lr 0.032, batch size 2048, 30 epochs, test accuracy 39.89%
+- LAMB, lr 0.032, batch size 1024, 30 epochs, test accuracy 41.58%
+- LAMB, lr 0.032, batch size 1024, 50 epochs, test accuracy 43.17%
+- LAMB, lr 0.032, batch size 8192, 100 epochs (warmup 5), test accuracy 45.02%
+- LAMB, lr 0.032, batch size 8192, 150 epochs (warmup 15), test accuracy --da rifare
+- LAMB, lr 0.032, batch size 2048, 150 epochs (warmup 15), test accuracy (doing)
+- LAMB, lr 0.032, batch size 16384, 150 epochs (warmup 15), test accuracy 44.72%
+
+- LARS, lr 5, batch size 2048, 50 epochs, test accuracy 31.49%
+- LARS, lr 10, batch size 2048, 50 epochs, test accuracy 34.17%
+- LARS, lr 15, batch size 2048, 50 epochs, test accuracy 38.50%
+- LARS, lr 10, batch size 2048, 90 epochs, test accuracy 39.19%
+- LARS, lr 15, batch size 8192, 90 epochs, test accuracy 39.96%
+- LARS, lr 15, batch size 2048, 150 epochs (warmup 15), test accuracy 43.14%
+- LARS, lr 12.8, batch size 8192, 150 epochs (warmup 15), test accuracy 40%
+- LARS, lr 15, batch size 1024, 150 epochs (warmup 15), test accuracy 46.47%
+- LARS, lr 15, batch size 512, 150 epochs (warmup 15), test accuracy 46.93%
+- LARS, lr 25, batch size 1024, 150 epoch (warmup 15), test accuracy 46.25%
+- LARS, lr 30, batch size 512, 150 epoch (warmup 15), test accuracy doing
+
 '''
 # [X] Plot
-# [ ] Worker/Sequential Training
 # [X] Scheduler
 # [X] Optimizer
+# [X] LAMB&LARS
 
 # Next steps to end part 3:
-# [ ] LAMB&LARS + hyperparameter tuning and comparison
+# [ ] hyperparameter tuning and comparison
 # [ ] IID sharding and training with LocalSGD
 # [ ] Performing multiple local steps, scaling the number of iteration
 # [ ] Using two optimizers: one for the outer loop and one for the inner loop (+ analysis)
 
 validation_split = 0.1  # 10% of the training data will be used for validation
+best_model = None
 
 def load_cifar100(config):
     # Transformations to apply to the dataset (including normalization)
@@ -110,6 +134,10 @@ def sel_optimizer(config, model):
         optimizer = optim.AdamW(model.parameters(), lr=config.model.learning_rate, weight_decay=0.04)
     elif config.model.optimizer == "SGDM":
         optimizer = optim.SGD(model.parameters(), lr=config.model.learning_rate, momentum=0.9, weight_decay=0.004)
+    elif config.model.optimizer == "LARS":
+        optimizer = LARS(model.parameters(), lr=config.model.learning_rate, momentum=0.9, weight_decay=0.004)
+    elif config.model.optimizer == "LAMB":
+        optimizer = LAMB(model.parameters(), lr=config.model.learning_rate, weight_decay=0.04)
     else:
         raise ValueError(f"Unsupported optimizer: {config.model.optimizer}")
     return optimizer
@@ -122,16 +150,36 @@ def sel_loss(config):
 
 def sel_scheduler(config, optimizer):
     assert config.model.scheduler, "Scheduler not selected"
+
+    warmup_epochs = 15  # to be added to config
+    total_epochs = config.model.epochs
+    warmup_iters = warmup_epochs * len(train_loader)
+
     if config.model.scheduler == 'CosineAnnealingLR':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=config.model.epochs, eta_min=0
+        )
+    elif config.model.scheduler == 'WarmUpCosineAnnealingLR':
+        # Warmup scheduler 
+        warmup_scheduler = optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=0.1, total_iters=warmup_iters
+        )
+        # Cosine Annealing Scheduler 
+        cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=total_epochs - warmup_epochs, eta_min=0
+        )
+        # combination
+        scheduler = optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_iters]
         )
     else:
         raise ValueError(f"Unsupported scheduler: {config.scheduler.name}")
     return scheduler
 
+
 # Training loop with validation
-def train_model(config, train_loader, val_loader, model, device, optimizer, scheduler, criterion, checkpoint = None):
+def train_model_centralized(config, train_loader, val_loader, model, device, optimizer, scheduler, criterion, checkpoint = None):
     
     train_losses = []
     train_accuracies = []
@@ -188,10 +236,15 @@ def train_model(config, train_loader, val_loader, model, device, optimizer, sche
         if val_acc > best_acc:
             best_acc = val_acc
             save_checkpoint(epoch, model, optimizer, scheduler, best_acc, epoch_loss, config)
+            print(f"Saved new best model at epoch {epoch+1}")
+            best_model=deepcopy(model)
 
         print(f"Epoch time: {time.time() - start_time:.2f} seconds")
 
-    plot_metrics(train_losses, train_accuracies, val_losses, val_accuracies)
+    plot_metrics(config.experiment.name, train_losses, train_accuracies, val_losses, val_accuracies)
+    save_checkpoint(epoch, model, optimizer, scheduler, val_acc, epoch_loss, config)
+    print("Testing best model...")
+    evaluate_model(test_loader, best_model)
 
 # Validation function
 def validate_model(val_loader, criterion, model):
@@ -251,5 +304,7 @@ if __name__ == '__main__':
         model, optimizer, scheduler, checkpoint = load_checkpoint(config)
     
       
-    train_model(config, train_loader, val_loader, model, device, optimizer, scheduler, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
+    train_model_centralized(config, train_loader, val_loader, model, device, optimizer, scheduler, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
+
+    print("Testing last model...")
     evaluate_model(test_loader, model)
