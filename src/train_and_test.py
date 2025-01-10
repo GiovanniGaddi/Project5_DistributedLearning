@@ -8,6 +8,7 @@ import os
 from models.lenet5 import leNet5
 from utils.parser import Parser
 from copy import deepcopy
+from tqdm import tqdm
 
 
 # [ ] Plot
@@ -104,54 +105,56 @@ def deepcopy_model(model):
             tmp_para.grad = para.grad.clone()
     return tmp_model
 
-def localSDG(config, model, training_data_splits, optimizer, criterion, device):
-    for t in range(config.model.work.sync_steps):
-        list_models = [deepcopy_model(model) for i in range(config.model.num_workers)]
-        #tmp_optimizer, tmp_scheduler = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate) for k in range(K)]
-        # scheduler = [optim.lr_scheduler.CosineAnnealingLR(
-        #         tmp_optimizer, T_max=H, eta_min=0
-        #     )
-        list_gradients = []
-        for k in range(config.model.num_workers):
-            for inputs, labels in training_data_splits[k][t]:
-                # take images and labels from dataloader
-                # transfer them to GPU
-                inputs, labels = inputs.to(device), labels.to(device)
-                # reset gradients
-                #tmp_optimizer[k].zero_grad()
-                #list_models[k].zero_grad()
+def localSDG(config, model, training_data_splits, optimizer, criterion, device, pbar):
+    with tqdm(range(config.model.work.sync_steps), desc='Sync', position=1) as pbar_t:
+        for t in pbar_t:
+            list_models = [deepcopy_model(model) for i in range(config.model.num_workers)]
+            #tmp_optimizer, tmp_scheduler = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate) for k in range(K)]
+            # scheduler = [optim.lr_scheduler.CosineAnnealingLR(
+            #         tmp_optimizer, T_max=H, eta_min=0
+            #     
+            list_gradients = []
+            for k in range(config.model.num_workers):
+                for inputs, labels in training_data_splits[k][t]:
+                    # take images and labels from dataloader
+                    # transfer them to GPU
+                    inputs, labels = inputs.to(device), labels.to(device)
+                    # reset gradients
+                    #tmp_optimizer[k].zero_grad()
+                    #list_models[k].zero_grad()
 
-                # local forward pass
-                outputs = list_models[k](inputs)
-                loss = criterion(outputs, labels)
+                    # local forward pass
+                    outputs = list_models[k](inputs)
+                    loss = criterion(outputs, labels)
+                    
+                    # local backward pass and optimization
+                    loss.backward()
                 
-                # local backward pass and optimization
-                loss.backward()
+                    # for param, global_param in zip(list_models[k].parameters(), model.parameters()):
+                    #     param = param - list_models[k].learning_rate * param.grad
 
-                # for param, global_param in zip(list_models[k].parameters(), model.parameters()):
-                #     param = param - list_models[k].learning_rate * param.grad
+                    for param, global_param in zip(list_models[k].parameters(), model.parameters()):
+                        param.data = global_param.data - list_models[k].learning_rate * param.grad
 
-                for param, global_param in zip(list_models[k].parameters(), model.parameters()):
-                    param.data = global_param.data - list_models[k].learning_rate * param.grad
+                    #tmp_optimizer[k].step()
+                
+            
+                pbar.write(f"Work{k+1:02} Loss: {loss}")
 
-                #tmp_optimizer[k].step()
+            #list_gradients.append([param.grad for param in list_models[k].parameters()])
+            list_gradients.append([global_param - param for global_param, param in zip(model.parameters(), list_models[k].parameters())])
 
-            print("model", k,", loss =", loss)
+            # Now, average gradients across all nodes
+            averaged_gradients = []
+            for param_gradients in zip(*list_gradients):
+                avg_grad = torch.mean(torch.stack(param_gradients), dim=0)
+                averaged_gradients.append(avg_grad)
 
-        #list_gradients.append([param.grad for param in list_models[k].parameters()])
-        list_gradients.append([global_param - param for global_param, param in zip(model.parameters(), list_models[k].parameters())])
-
-        # Now, average gradients across all nodes
-        averaged_gradients = []
-        for param_gradients in zip(*list_gradients):
-            avg_grad = torch.mean(torch.stack(param_gradients), dim=0)
-            averaged_gradients.append(avg_grad)
-
-        # Apply averaged gradients to the global model
-        with torch.no_grad():
-            for param, avg_grad in zip(model.parameters(), averaged_gradients):
-                param.grad = avg_grad
-                param.data -= model.learning_rate * param.grad
+            # Apply averaged gradients to the global model
+            with torch.no_grad():
+                for param, avg_grad in zip(model.parameters(), averaged_gradients):
+                    param.grad = avg_grad
+                    param.data -= model.learning_rate * param.grad
 
 # Training loop with validation
 def train_model(config, train_data, val_data, model, device, optimizer, criterion, checkpoint = None):
@@ -162,54 +165,59 @@ def train_model(config, train_data, val_data, model, device, optimizer, criterio
     work_data_splits = split_dataset(train_data, config.model.num_workers)
     sync_data_split = [split_dataset(data,config.model.work.sync_steps) for data in work_data_splits]
     sycn_data_loaders = [[DataLoader(data, batch_size=config.model.work.batch_size, shuffle=False, drop_last=False) for data in sync_step] for sync_step in sync_data_split]
+    
 
     val_loader = DataLoader(val_data, batch_size=config.model.batch_size, shuffle=False)
+    postfix = {'Val_Acc': '00.00%', 'Best_Acc': '00.00%'}
+    with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=0, postfix=postfix) as pbar:
+        for epoch in pbar:
+            model.train()
+            running_loss = 0.0
+            correct = 0
+            total = 0
+            start_time = time.time()
 
-    for epoch in range(start_epoch, config.model.epochs):
-        model.train()
-        running_loss = 0.0
-        correct = 0
-        total = 0
-        start_time = time.time()
+            # Training phase
+            # for inputs, labels in train_loader:
+            #     inputs, labels = inputs.to(device), labels.to(device)
 
-        # Training phase
-        # for inputs, labels in train_loader:
-        #     inputs, labels = inputs.to(device), labels.to(device)
+            #     optimizer.zero_grad()
 
-        #     optimizer.zero_grad()
+            #     # Forward pass
+            #     outputs = model(inputs)
+            #     loss = criterion(outputs, labels)
 
-        #     # Forward pass
-        #     outputs = model(inputs)
-        #     loss = criterion(outputs, labels)
+            #     # Backward pass and optimization
+            #     loss.backward()
+            #     optimizer.step()
 
-        #     # Backward pass and optimization
-        #     loss.backward()
-        #     optimizer.step()
+            #     # Track the loss and accuracy
+            #     running_loss += loss.item()
+            #     _, predicted = torch.max(outputs, 1)
+            #     total += labels.size(0)
+            #     correct += (predicted == labels).sum().item()
 
-        #     # Track the loss and accuracy
-        #     running_loss += loss.item()
-        #     _, predicted = torch.max(outputs, 1)
-        #     total += labels.size(0)
-        #     correct += (predicted == labels).sum().item()
+            
 
-        
+            localSDG(config, model, sycn_data_loaders, optimizer, criterion, device, pbar)
 
-        localSDG(config, model, sycn_data_loaders, optimizer, criterion, device)
+            # epoch_loss = running_loss / len(train_loader)
+            # epoch_acc = 100 * correct / total
+            # print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
 
-        # epoch_loss = running_loss / len(train_loader)
-        # epoch_acc = 100 * correct / total
-        # print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
-
-        # Validate the model on the validation set
-        val_acc = validate_model(val_loader, model)
-        print(f'Validation Accuracy: {val_acc:.2f}%')
-
-        # Save the model with the best accuracy on the validation set
-        if val_acc > best_acc:
-            best_acc = val_acc
-            # save_checkpoint(epoch, model, optimizer, best_acc, epoch_loss, config)
-
-        print(f"Epoch time: {time.time() - start_time:.2f} seconds")
+            # Validate the model on the validation set
+            val_acc = validate_model(val_loader, model)
+            #print(f'Validation Accuracy: {val_acc:.2f}%')
+            
+            
+            # Save the model with the best accuracy on the validation set
+            if val_acc > best_acc:
+                best_acc = val_acc
+                # save_checkpoint(epoch, model, optimizer, best_acc, epoch_loss, config)
+            #print(f"Epoch time: {time.time() - start_time:.2f} seconds")
+            postfix['Val_Acc'] = f'{val_acc:.2f}%'
+            postfix['Best_Acc'] = f'{best_acc:.2f}%'
+            pbar.set_postfix(postfix)
 
 # Validation function
 def validate_model(val_loader, model):
