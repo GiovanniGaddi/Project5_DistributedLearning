@@ -3,6 +3,11 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 
+class WorkerConfig(BaseModel):
+    sync_steps: int
+    local_steps: int
+    batch_size: int
+
 class ModelConfig(BaseModel):
     name: str
     epochs: int
@@ -11,9 +16,10 @@ class ModelConfig(BaseModel):
     loss: str
     optimizer: str
     scheduler: str
+    test: Optional[bool] = False
     pretreined: Optional[Path] = None
-    test: bool
-    num_nodes: int
+    work: Optional[WorkerConfig] = None
+    num_workers: Optional[int] = 0
 
 class ExperimentConfig(BaseModel):
     name: str

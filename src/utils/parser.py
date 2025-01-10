@@ -12,15 +12,21 @@ class Parser():
         self.parser.add_argument('-c', '--config', type=Path, required=True if config_path is None else False, default=config_path, dest='CONFIG', help='Configuration file Path')
         self.parser.add_argument('--cpu', action='store_true', dest='CPU_F', help='Set CPU as Device')
 
-        self.parser.add_argument('-lr', '--learning_rate', type=float, dest='LR', help='Overload setted Learning Rate')
-        self.parser.add_argument('-bs', '--batch_size', type=int, dest='BS', help='Overload setted Batch Size')
+        self.parser.add_argument('-lr', '--learning-rate', type=float, dest='LR', help='Overload setted Learning Rate')
+        self.parser.add_argument('-bs', '--batch-size', type=int, dest='BS', help='Overload setted Batch Size')
         self.parser.add_argument('-ep', '--epochs', type=int, dest='EPOCHS', help='Overload setted Epochs')
 
+        self.parser.add_argument('-nw', '--number-workers', type=int, dest='NW', default=  0, help='Overload setted Number of Workers')
+        self.parser.add_argument('-wss', '--worker-sync-step', type=int, dest='WSS', help='Overload setted workers Syncronised Steps')
+        self.parser.add_argument('-wls', '--worker-local-step', type=int, dest='WLS', help='Overload setted workers Local Steps')
+        self.parser.add_argument('-wbs', '--worker-batch-size', type=int, dest='WBS', help='Overload setted workers Batch Size')
+        
+
         self.parser.add_argument('-P', '--pretrained', type=Path, dest='PRETRAINED', help='Path to the pretrained Model (Checkpoint)')
-        self.parser.add_argument('-LC', '--load_checkpoint', action='store_true', dest='CHECKPOINT', help='Resume previous experiment')
+        self.parser.add_argument('-LC', '--load-checkpoint', action='store_true', dest='CHECKPOINT', help='Resume previous experiment')
         self.parser.add_argument('-T', '--test', action='store_true', dest='TEST_F', help='Skip Training and do only Test')
         
-        self.parser.add_argument('-en', '--experiment_name', type=str, dest='EXPERIMENT_NAME', help='Change Experiment')
+        self.parser.add_argument('-en', '--experiment-name', type=str, dest='EXPERIMENT_NAME', help='Change Experiment')
         self.parser.add_argument('-v', '--version', type=float, dest='VERSION', help='Update Version')
 
     def parse_args(self):
@@ -40,6 +46,22 @@ class Parser():
 
         if self.args.EPOCHS is not None:
             config.model.epochs = self.args.EPOCHS
+
+        if config.model.num_workers > 0 or self.args.NW > 0:
+
+            if self.args.WSS is not None:
+                config.model.work.sync_steps = self.args.WSS
+            
+            if self.args.WLS is not None:
+                config.model.work.local_steps = self.args.WLS
+            
+            if self.args.WBS is not None:
+                config.model.work.batch_size = self.args.WBS
+        
+        else:
+            config.model.num_workers = 0
+            config.model.work = None
+
 
         if self.args.PRETRAINED is not None:
             config.model.pretreined = self.args.PRETRAINED

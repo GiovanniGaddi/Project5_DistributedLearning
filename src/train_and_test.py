@@ -43,24 +43,7 @@ def load_cifar100(config):
     val_size = len(train_dataset) - train_size
     train_subset, val_subset = random_split(train_dataset, [train_size, val_size])
 
-    # Create DataLoaders for training, validation, and test sets
-    # Split train subset into num_nodes DataLoaders
-    # train_loaders = []
-    # #val_loaders = []
-    # num_nodes = config.model.num_nodes
-    # for i in range(num_nodes):
-    #     train_indices = train_subset[(train_size / num_nodes) * i: (train_size / num_nodes) * (i+1)]
-    #     train_loaders.append(DataLoader(train_indices, batch_size=config.model.batch_size, shuffle=True))
-    train_subsets = split_dataset(train_subset, config.model.num_nodes)
-
-    # Create DataLoaders for each subset
-    batch_size = config.model.batch_size
-    train_loaders = [DataLoader(subset, batch_size=batch_size, shuffle=True) for subset in train_subsets]
-
-    #train_loader = DataLoader(train_subset, batch_size=config.model.batch_size, shuffle=True)
-    val_loader = DataLoader(val_subset, batch_size=config.model.batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=config.model.batch_size, shuffle=False)
-    return train_loaders, val_loader, test_loader 
+    return train_subset, val_subset, test_dataset
 
 #Save checkpoint
 def save_checkpoint(epoch, model, optimizer, best_acc, loss, config):
@@ -121,18 +104,17 @@ def deepcopy_model(model):
             tmp_para.grad = para.grad.clone()
     return tmp_model
 
-def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_size, momentum, K, device, T=12, H=64):
-    for t in range(T):
-        list_models = [deepcopy_model(model) for i in range(K)]
+def localSDG(config, model, training_data_splits, optimizer, criterion, device):
+    for t in range(config.model.work.sync_steps):
+        list_models = [deepcopy_model(model) for i in range(config.model.num_workers)]
         #tmp_optimizer, tmp_scheduler = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate) for k in range(K)]
         # scheduler = [optim.lr_scheduler.CosineAnnealingLR(
         #         tmp_optimizer, T_max=H, eta_min=0
         #     )
         list_gradients = []
-        for k in range(K):
-            for h in range(H):
+        for k in range(config.model.num_workers):
+            for inputs, labels in training_data_splits[k][t]:
                 # take images and labels from dataloader
-                inputs, labels = next(iter(training_data[k]))
                 # transfer them to GPU
                 inputs, labels = inputs.to(device), labels.to(device)
                 # reset gradients
@@ -172,10 +154,16 @@ def localSDG(model, training_data, optimizer, criterion, minibatch_size, step_si
                 param.data -= model.learning_rate * param.grad
 
 # Training loop with validation
-def train_model(config, train_loader, val_loader, model, device, optimizer, criterion, checkpoint = None):
+def train_model(config, train_data, val_data, model, device, optimizer, criterion, checkpoint = None):
     
     best_acc = 0.0 if checkpoint is None else checkpoint.best_acc
     start_epoch = 0 if checkpoint is None else checkpoint.start_epoch
+
+    work_data_splits = split_dataset(train_data, config.model.num_workers)
+    sync_data_split = [split_dataset(data,config.model.work.sync_steps) for data in work_data_splits]
+    sycn_data_loaders = [[DataLoader(data, batch_size=config.model.work.batch_size, shuffle=False, drop_last=False) for data in sync_step] for sync_step in sync_data_split]
+
+    val_loader = DataLoader(val_data, batch_size=config.model.batch_size, shuffle=False)
 
     for epoch in range(start_epoch, config.model.epochs):
         model.train()
@@ -204,7 +192,9 @@ def train_model(config, train_loader, val_loader, model, device, optimizer, crit
         #     total += labels.size(0)
         #     correct += (predicted == labels).sum().item()
 
-        localSDG(model, train_loader, optimizer, criterion, 0, 10, 0.9, config.model.num_nodes, device)
+        
+
+        localSDG(config, model, sycn_data_loaders, optimizer, criterion, device)
 
         # epoch_loss = running_loss / len(train_loader)
         # epoch_acc = 100 * correct / total
@@ -238,10 +228,11 @@ def validate_model(val_loader, model):
     return accuracy
 
 # Evaluate model performance on test set
-def evaluate_model(test_loader, model):
+def evaluate_model(test_data, model):
     model.eval()  # Set model to evaluation mode
     correct = 0
     total = 0
+    test_loader = DataLoader(test_data, batch_size=config.model.batch_size, shuffle=False)
     with torch.no_grad():
         for inputs, labels in test_loader:
             inputs, labels = inputs.to(device), labels.to(device)
@@ -254,10 +245,10 @@ def evaluate_model(test_loader, model):
     print(f'Test Accuracy: {accuracy:.2f}%')
 
 if __name__ == '__main__':
-    parser = Parser('src/config/Lenet.yaml')
+    parser = Parser('src/config/Distributed_Lenet.yaml')
     config, device = parser.parse_args()
     
-    train_loader, val_loader, test_loader = load_cifar100(config)
+    train_data, val_data, test_data = load_cifar100(config)
 
     model = sel_model(config)
     device = sel_device(config)
@@ -269,5 +260,7 @@ if __name__ == '__main__':
         model, optimizer, checkpoint = load_checkpoint(config)
     
       
-    train_model(config, train_loader, val_loader, model, device, optimizer, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
-    evaluate_model(test_loader, model)
+    train_model(config, train_data, val_data, model, device, optimizer, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
+    evaluate_model(test_data, model)
+
+    
