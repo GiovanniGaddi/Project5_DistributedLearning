@@ -2,10 +2,10 @@ model:
   name: LeNet
   epochs: 150
   batch_size: 2048
-  learning_rate: 0.032
+  learning_rate: 0.008
   loss: CSE
   optimizer: LAMB
-  scheduler: WarmUpCosineAnnealingLR
+  scheduler: WarmUpPolynomialDecayLR
   pretrained:
   test: False
 experiment:

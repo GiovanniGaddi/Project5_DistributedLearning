@@ -25,21 +25,23 @@ Best results with large batch and warmup scheduler:
 - LAMB, lr 0.032, batch size 1024, 30 epochs, test accuracy 41.58%
 - LAMB, lr 0.032, batch size 1024, 50 epochs, test accuracy 43.17%
 - LAMB, lr 0.032, batch size 8192, 100 epochs (warmup 5), test accuracy 45.02%
-- LAMB, lr 0.032, batch size 8192, 150 epochs (warmup 15), test accuracy --da rifare
-- LAMB, lr 0.032, batch size 2048, 150 epochs (warmup 15), test accuracy (doing)
 - LAMB, lr 0.032, batch size 16384, 150 epochs (warmup 15), test accuracy 44.72%
+- LAMB, lr 0.008, batch size 2048, 100 epochs (warmup 5), test accuracy 46.43%
+- LAMB, lr 0.008, batch size 2048, 150 epochs (warmup 15), test accuracy 47.09%
+- LAMB, lr 0.008, batch size 2048, 150 epochs (warmup 15), polynomial, test accuracy now 
 
-- LARS, lr 5, batch size 2048, 50 epochs, test accuracy 31.49%
-- LARS, lr 10, batch size 2048, 50 epochs, test accuracy 34.17%
-- LARS, lr 15, batch size 2048, 50 epochs, test accuracy 38.50%
-- LARS, lr 10, batch size 2048, 90 epochs, test accuracy 39.19%
-- LARS, lr 15, batch size 8192, 90 epochs, test accuracy 39.96%
-- LARS, lr 15, batch size 2048, 150 epochs (warmup 15), test accuracy 43.14%
+
+
+- LARS, lr 10, batch size 256, 150 epochs (warmup 15), test accuracy now
 - LARS, lr 12.8, batch size 8192, 150 epochs (warmup 15), test accuracy 40%
+- LARS, lr 15, batch size 2048, 150 epochs (warmup 15), test accuracy 43.14%
 - LARS, lr 15, batch size 1024, 150 epochs (warmup 15), test accuracy 46.47%
 - LARS, lr 15, batch size 512, 150 epochs (warmup 15), test accuracy 46.93%
+- LARS, lr 15, batch size 256, 150 epochs (warmup 15), test accuracy 49.04%
+- LARS, lr 15, batch size 128, 150 epochs (warmup 15), test accuracy 48.65%
+- LARS, lr 20, batch size 1024, 150 epochs (warmup 15), test accuracy 46.05%
 - LARS, lr 25, batch size 1024, 150 epoch (warmup 15), test accuracy 46.25%
-- LARS, lr 30, batch size 512, 150 epoch (warmup 15), test accuracy doing
+- LARS, lr 30, batch size 512, 150 epoch (warmup 15), test accuracy 46.72%
 
 '''
 # [X] Plot
@@ -49,7 +51,7 @@ Best results with large batch and warmup scheduler:
 
 # Next steps to end part 3:
 # [ ] hyperparameter tuning and comparison
-# [ ] IID sharding and training with LocalSGD
+# [ ] IID sharding and training with LocalSGD and PostLocalSGD
 # [ ] Performing multiple local steps, scaling the number of iteration
 # [ ] Using two optimizers: one for the outer loop and one for the inner loop (+ analysis)
 
@@ -57,23 +59,22 @@ validation_split = 0.1  # 10% of the training data will be used for validation
 best_model = None
 
 def load_cifar100(config):
-    # Transformations to apply to the dataset (including normalization)
-    # CIFAR-100 Training Transform
+    # Transform the training set
     train_transform = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),  # Random crop to 32x32
-        transforms.RandomHorizontalFlip(),    # Random horizontal flip
-        transforms.ToTensor(),                # Convert to tensor
-        transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  # Normalize
+        transforms.RandomCrop(32, padding=4),  
+        transforms.RandomHorizontalFlip(),    
+        transforms.ToTensor(),                
+        transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  
     ])
 
-    # CIFAR-100 Test Transform
+    # Transform the test set
     test_transform = transforms.Compose([
-        transforms.CenterCrop(32),            # Central crop to 32x32
-        transforms.ToTensor(),                # Convert to tensor
-        transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  # Normalize
+        transforms.CenterCrop(32),            
+        transforms.ToTensor(),                
+        transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  
     ])
 
-    # Load CIFAR-100 dataset
+    # Load CIFAR-100 dataset + transformation
     train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=train_transform)
     test_dataset = datasets.CIFAR100(root='./data', train=False, download=True, transform=test_transform)
 
@@ -173,6 +174,22 @@ def sel_scheduler(config, optimizer):
             optimizer, schedulers=[warmup_scheduler, cosine_scheduler],
             milestones=[warmup_iters]
         )
+    elif config.model.scheduler == 'WarmUpPolynomialDecayLR':
+        # Warmup scheduler
+        warmup_scheduler = optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=0.1, total_iters=warmup_iters
+        )
+        # Polynomial Decay Scheduler
+        polynomial_scheduler = optim.lr_scheduler.LambdaLR(
+            optimizer,
+            lr_lambda=lambda step: (
+                (1 - (step - warmup_iters) / (total_epochs * len(train_loader) - warmup_iters)) ** 2
+            ) if step >= warmup_iters else 1.0
+        )
+        scheduler = optim.lr_scheduler.SequentialLR(
+            optimizer, schedulers=[warmup_scheduler, polynomial_scheduler],
+            milestones=[warmup_iters]
+        )
     else:
         raise ValueError(f"Unsupported scheduler: {config.scheduler.name}")
     return scheduler
@@ -188,6 +205,7 @@ def train_model_centralized(config, train_loader, val_loader, model, device, opt
 
     best_acc = 0.0 if checkpoint is None else checkpoint.best_acc
     start_epoch = 0 if checkpoint is None else checkpoint.start_epoch
+    train_time = time.time()
 
     for epoch in range(start_epoch, config.model.epochs):
         model.train()
@@ -227,7 +245,7 @@ def train_model_centralized(config, train_loader, val_loader, model, device, opt
 
         # Validate the model on the validation set
         val_loss, val_acc = validate_model(val_loader, criterion, model)
-        print(f'Validation Accuracy: {val_acc:.2f}%')
+        print(f'Validation Loss: {val_loss:.2f}, Validation Accuracy: {val_acc:.2f}%')
 
         val_losses.append(val_loss)
         val_accuracies.append(val_acc)
@@ -237,12 +255,15 @@ def train_model_centralized(config, train_loader, val_loader, model, device, opt
             best_acc = val_acc
             save_checkpoint(epoch, model, optimizer, scheduler, best_acc, epoch_loss, config)
             print(f"Saved new best model at epoch {epoch+1}")
-            best_model=deepcopy(model)
+            best_model = deepcopy(model)
 
         print(f"Epoch time: {time.time() - start_time:.2f} seconds")
 
+    print(f"Total train time: {time.time() - train_time:.2f} seconds")
+
     plot_metrics(config.experiment.name, train_losses, train_accuracies, val_losses, val_accuracies)
     save_checkpoint(epoch, model, optimizer, scheduler, val_acc, epoch_loss, config)
+
     print("Testing best model...")
     evaluate_model(test_loader, best_model)
 
