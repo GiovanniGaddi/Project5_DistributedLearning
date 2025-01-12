@@ -33,6 +33,9 @@ class Parser():
         self.parser.add_argument('-opt', '--optimizer', type=str, dest='OPTIMIZER', help='Overrides previously set optimizer')
         self.parser.add_argument('-sch', '--scheduler', type=str, dest='SCHEDULER', help='Overrides previously set scheduler')
 
+        self.parser.add_argument('-pat', '--patience', type=int, dest='PATIENCE', help='Overrides previously set patience')
+        self.parser.add_argument('-wup', '--schewarmupduler', type=int, dest='WARMUP', help='Overrides previously set warmup')
+
     def parse_args(self):
         self.args = self.parser.parse_args()
 
@@ -71,6 +74,12 @@ class Parser():
 
         if self.args.SCHEDULER is not None:
             config.model.scheduler = self.args.SCHEDULER
+
+        if self.args.WARMUP is not None:
+            config.model.warmup = self.args.WARMUP
+
+        if self.args.PATIENCE is not None:
+            config.model.patience = self.args.PATIENCE
         
         config.checkpoint.dir = os.path.join(config.checkpoint.dir,config.experiment.name)
         os.makedirs(config.checkpoint.dir, exist_ok=True)

@@ -19,29 +19,44 @@ Best results for centralized at 150 epochs:
 - SGDM, lr 0.01, momentum 0.9, weight decay 4e-3: test accuracy 55.10%/55.50%
 - AdamW, lr 0.001, weight decay 0.01: test accuracy 49.56%
 - AdamW, lr 0.001, weight decay 0.04: test accuracy 52.09%
+- AdamW, lr 0.0015, weight decay 0.04: test accuracy 48.4%
+- AdamW, lr 0.003, weight decay 0.04: test accuracy 48.7%
+- AdamW, lr 0.002, weight decay 0.04: test accuracy 48.6%
+
 
 Best results with large batch and warmup scheduler:
-- LAMB, lr 0.032, batch size 2048, 30 epochs, test accuracy 39.89%
-- LAMB, lr 0.032, batch size 1024, 30 epochs, test accuracy 41.58%
-- LAMB, lr 0.032, batch size 1024, 50 epochs, test accuracy 43.17%
-- LAMB, lr 0.032, batch size 8192, 100 epochs (warmup 5), test accuracy 45.02%
-- LAMB, lr 0.032, batch size 16384, 150 epochs (warmup 15), test accuracy 44.72%
-- LAMB, lr 0.008, batch size 2048, 100 epochs (warmup 5), test accuracy 46.43%
-- LAMB, lr 0.008, batch size 2048, 150 epochs (warmup 15), test accuracy 47.09%
-- LAMB, lr 0.008, batch size 2048, 150 epochs (warmup 15), polynomial, test accuracy now 
+- LAMB, lr 0.128, batch size 8192, 150 epochs (warmup 15), polynomial: test accuracy next 
+- LAMB, lr 0.032, batch size 2048, 30 epochs: test accuracy 39.89%
+- LAMB, lr 0.032, batch size 1024, 30 epochs: test accuracy 41.58%
+- LAMB, lr 0.032, batch size 1024, 50 epochs: test accuracy 43.17%
+- LAMB, lr 0.032, batch size 8192, 100 epochs (warmup 5): test accuracy 45.02%
+- LAMB, lr 0.032, batch size 16384, 150 epochs (warmup 15): test accuracy 44.72%
+- LAMB, lr 0.032, batch size 2048, 150 epochs (warmup 15) with early stopping: test accuracy 46.04%
+- LAMB, lr 0.032, batch size 2048, 150 epochs (warmup 15), polynomial with early stopping: test accuracy 45.10% 
+- LAMB, lr 0.008, batch size 2048, 100 epochs (warmup 5): test accuracy 46.43%
+- LAMB, lr 0.008, batch size 2048, 150 epochs (warmup 15): test accuracy 47.09%
+- LAMB, lr 0.008, batch size 2048, 150 epochs (warmup 15), polynomial: test accuracy 46.93% 
+- LAMB, lr 0.005, batch size 1024, 150 epochs (warmup 15), polynomial: test accuracy 44.07% 
+- LAMB, lr 0.005, batch size 512, 150 epochs (warmup 15), polynomial: test accuracy todo
 
 
 
-- LARS, lr 10, batch size 256, 150 epochs (warmup 15), test accuracy now
-- LARS, lr 12.8, batch size 8192, 150 epochs (warmup 15), test accuracy 40%
-- LARS, lr 15, batch size 2048, 150 epochs (warmup 15), test accuracy 43.14%
-- LARS, lr 15, batch size 1024, 150 epochs (warmup 15), test accuracy 46.47%
-- LARS, lr 15, batch size 512, 150 epochs (warmup 15), test accuracy 46.93%
-- LARS, lr 15, batch size 256, 150 epochs (warmup 15), test accuracy 49.04%
-- LARS, lr 15, batch size 128, 150 epochs (warmup 15), test accuracy 48.65%
-- LARS, lr 20, batch size 1024, 150 epochs (warmup 15), test accuracy 46.05%
-- LARS, lr 25, batch size 1024, 150 epoch (warmup 15), test accuracy 46.25%
-- LARS, lr 30, batch size 512, 150 epoch (warmup 15), test accuracy 46.72%
+
+Default momentum 0.9
+- LARS, lr 10, batch size 256, 150 epochs (warmup 15): test accuracy 47.71%
+- LARS, lr 12.8, batch size 8192, 150 epochs (warmup 15): test accuracy 40%
+- LARS, lr 15, batch size 2048, 150 epochs (warmup 15): test accuracy 43.14%
+- LARS, lr 15, batch size 1024, 150 epochs (warmup 15): test accuracy 46.47%
+- LARS, lr 15, batch size 512, 150 epochs (warmup 15): test accuracy 46.93%
+- LARS, lr 15, batch size 256, 150 epochs (warmup 15): test accuracy 49.04%/47.87%
+- LARS, lr 15, batch size 256, 150 epochs (warmup 15), momentum 0.5: test accuracy 41.38%
+- LARS, lr 15, batch size 128, 150 epochs (warmup 15): test accuracy 48.65%
+- LARS, lr 20, batch size 256, 150 epochs (warmup 15): test accuracy 47%
+- LARS, lr 20, batch size 1024, 150 epochs (warmup 15): test accuracy 46.05%
+- LARS, lr 25, batch size 1024, 150 epoch (warmup 15): test accuracy 46.25%
+- LARS, lr 30, batch size 512, 150 epoch (warmup 15): test accuracy 46.72%
+- LARS, lr 30, batch size 8192, 150 epoch (warmup 15): test accuracy next
+
 
 '''
 # [X] Plot
@@ -152,7 +167,7 @@ def sel_loss(config):
 def sel_scheduler(config, optimizer):
     assert config.model.scheduler, "Scheduler not selected"
 
-    warmup_epochs = 15  # to be added to config
+    warmup_epochs = config.model.warmup
     total_epochs = config.model.epochs
     warmup_iters = warmup_epochs * len(train_loader)
 
@@ -202,6 +217,12 @@ def train_model_centralized(config, train_loader, val_loader, model, device, opt
     train_accuracies = []
     val_losses = []
     val_accuracies = []
+    no_improvement_count = 0 
+
+    if config.model.patience <= 0:
+        patience = config.model.epochs
+    else:
+        patience = config.model.patience
 
     best_acc = 0.0 if checkpoint is None else checkpoint.best_acc
     start_epoch = 0 if checkpoint is None else checkpoint.start_epoch
@@ -256,12 +277,19 @@ def train_model_centralized(config, train_loader, val_loader, model, device, opt
             save_checkpoint(epoch, model, optimizer, scheduler, best_acc, epoch_loss, config)
             print(f"Saved new best model at epoch {epoch+1}")
             best_model = deepcopy(model)
+            no_improvement_count = 0
+        else:
+            no_improvement_count += 1
 
         print(f"Epoch time: {time.time() - start_time:.2f} seconds")
 
+        if no_improvement_count >= patience:
+            print(f"Early stopping triggered after {epoch + 1} epochs.")
+            break
+
     print(f"Total train time: {time.time() - train_time:.2f} seconds")
 
-    plot_metrics(config.experiment.name, train_losses, train_accuracies, val_losses, val_accuracies)
+    plot_metrics("centralized", config, train_losses, train_accuracies, val_losses, val_accuracies)
     save_checkpoint(epoch, model, optimizer, scheduler, val_acc, epoch_loss, config)
 
     print("Testing best model...")
@@ -269,7 +297,7 @@ def train_model_centralized(config, train_loader, val_loader, model, device, opt
 
 # Validation function
 def validate_model(val_loader, criterion, model):
-    model.eval()  # Set model to evaluation mode
+    model.eval()  
     correct = 0
     total = 0
     running_loss = 0.0
@@ -291,7 +319,7 @@ def validate_model(val_loader, criterion, model):
 
 # Evaluate model performance on test set
 def evaluate_model(test_loader, model):
-    model.eval()  # Set model to evaluation mode
+    model.eval()  
     correct = 0
     total = 0
     with torch.no_grad():
@@ -320,6 +348,7 @@ if __name__ == '__main__':
     loss_function = sel_loss(config)
     optimizer = sel_optimizer(config, model)
     scheduler = sel_scheduler(config, optimizer)
+    
     
     if config.experiment.resume:
         model, optimizer, scheduler, checkpoint = load_checkpoint(config)

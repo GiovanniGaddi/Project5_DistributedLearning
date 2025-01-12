@@ -1,6 +1,11 @@
 from matplotlib import pyplot as plt
+import os
 
-def plot_metrics(name, train_losses, train_accuracies, val_losses, val_accuracies):
+def plot_metrics(type, config, train_losses, train_accuracies, val_losses, val_accuracies):
+
+    #os.makedirs('../plots', exist_ok=True)
+    filename = f"{type}_opt-{config.model.optimizer}_sched-{config.model.scheduler}_lr-{config.model.learning_rate}_bs-{config.model.batch_size}.png"
+    filepath = os.path.join('../plots', filename)
     # Training and validation loss
     plt.figure(figsize=(12, 5))
 
@@ -22,5 +27,6 @@ def plot_metrics(name, train_losses, train_accuracies, val_losses, val_accuracie
     plt.legend()
 
     plt.tight_layout()
-    #plt.savefig(name)
+    #plt.savefig(filepath)
     plt.show()
+    #plt.close()

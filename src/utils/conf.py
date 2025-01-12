@@ -11,6 +11,8 @@ class ModelConfig(BaseModel):
     loss: str
     optimizer: str
     scheduler: str
+    warmup: int
+    patience: int
     pretrained: Optional[Path] = None
     test: bool
 
