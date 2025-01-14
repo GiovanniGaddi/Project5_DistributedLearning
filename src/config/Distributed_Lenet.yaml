@@ -1,0 +1,21 @@
+model:
+  name: LeNet
+  epochs: 5
+  batch_size: 64
+  learning_rate: 1e-2
+  loss: CSE
+  optimizer: SGD
+  scheduler: try
+  test: False
+  work: 
+    sync_steps: 12
+    local_steps: 64
+    batch_size: 32
+  num_workers: 4
+experiment:
+  name: train_lenet_cifar100
+  resume: False
+  version: 0.0
+checkpoint:
+  dir: ./checkpoints
+  save_top_k: 3

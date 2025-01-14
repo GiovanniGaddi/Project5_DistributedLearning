@@ -10,6 +10,7 @@ model:
   warmup: 15
   pretrained:
   test: False
+  num_nodes: 2
 experiment:
   name: train_lenet_cifar100
   resume: False
