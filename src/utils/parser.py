@@ -45,9 +45,12 @@ class Parser():
             config.model.batch_size = self.args.BS
 
         if self.args.EPOCHS is not None:
-            config.model.epochs = self.args.EPOCHS
+            config.model.epochs = self.args.EPOCHS        
 
         if config.model.num_workers > 0 or self.args.NW > 0:
+
+            if self.args.NW > 0:
+                config.model.num_workers = self.args.NW
 
             if self.args.WSS is not None:
                 config.model.work.sync_steps = self.args.WSS
