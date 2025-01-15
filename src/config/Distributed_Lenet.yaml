@@ -1,10 +1,10 @@
 model:
   name: LeNet
-  epochs: 5
+  epochs: 150
   batch_size: 64
   learning_rate: 1e-2
   loss: CSE
-  optimizer: LAMB
+  optimizer: SGDM
   scheduler: WarmUpPolynomialDecayLR
   test: False
   warmup: 15

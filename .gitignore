@@ -169,5 +169,6 @@ share/
 #downloaded Data
 src/data/
 data/
+plots/
 
 test*

@@ -249,7 +249,6 @@ def centralized(config, model, train_loader, optimizer, criterion, device, pbar)
         correct += (predicted == labels).sum().item()
     return [running_loss], [100 * correct/total]
 
-
 def localSDG(config, model, training_data_splits, optimizer, criterion, device, pbar):
     losses = [0]*config.model.num_workers
     totals = [0]*config.model.num_workers
@@ -257,7 +256,7 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
     K = config.model.num_workers
     list_models = [deepcopy_model(model) for _ in range(K)]
     list_optimizers = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate, momentum=0.9, weight_decay=4e-3) for k in range(K)]
-    with tqdm(range(config.model.work.sync_steps), desc='Sync', position=1) as pbar_t:
+    with tqdm(range(config.model.work.sync_steps), desc='Sync', position=0) as pbar_t:
         for t in pbar_t:
             #old_models = [deepcopy_model(list_models[k]) for k in range(K)]
             for k in range(K):
@@ -318,8 +317,8 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
     
     best_model = None
     
-    train_losses = []
-    train_accuracies = []
+    train_losses = [[] for _ in range(config.model.num_workers if config.model.num_workers > 0 else 1)]
+    train_accuracies = [[] for _ in range(config.model.num_workers if config.model.num_workers > 0 else 1)]
     val_losses = []
     val_accuracies = []
     no_improvement_count = 0 
@@ -354,8 +353,10 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
             # epoch_loss = running_loss / len(train_data)
             # epoch_acc = 100 * correct / total
             # print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
-            train_losses.append(epoch_loss)
-            train_accuracies.append(epoch_acc)
+            for train_loss, ep_loss in zip(train_losses, epoch_loss):
+                train_loss.append(ep_loss)
+            for train_acc, ep_acc in zip(train_accuracies, epoch_loss):
+                train_acc.append(ep_acc)
 
             scheduler.step()
 
@@ -384,7 +385,7 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
                 break
 
 
-    plot_metrics("centralized" if config.model.num_workers > 0 else "distributed", config, train_losses, train_accuracies, val_losses, val_accuracies)
+    plot_metrics("distributed" if config.model.num_workers > 0 else "centralized", config, train_losses, train_accuracies, val_losses, val_accuracies)
     save_checkpoint(epoch, model, optimizer, scheduler, val_acc, epoch_loss, config)
     return best_model
 
@@ -451,6 +452,6 @@ if __name__ == '__main__':
     best_model = train_model(config, train_data, val_data, model, device, optimizer, scheduler, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
     model_acc = evaluate_model(test_data, model)
     print(f'Model Test Accuracy: {model_acc:.2f}%')
-    best_model_acc = evaluate_model(val_data, best_model)
+    best_model_acc = evaluate_model(test_data, best_model)
     print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
     
