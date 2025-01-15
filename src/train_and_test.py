@@ -6,6 +6,7 @@ from torchvision import datasets, transforms, models
 import time
 from copy import deepcopy
 import os
+import csv
 from pathlib import Path
 from models.lenet5 import leNet5
 from utils.parser import Parser
@@ -355,7 +356,7 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
             # print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
             for train_loss, ep_loss in zip(train_losses, epoch_loss):
                 train_loss.append(ep_loss)
-            for train_acc, ep_acc in zip(train_accuracies, epoch_loss):
+            for train_acc, ep_acc in zip(train_accuracies, epoch_acc):
                 train_acc.append(ep_acc)
 
             scheduler.step()
@@ -427,7 +428,34 @@ def evaluate_model(test_data, model):
 
     accuracy = 100 * correct / total
     return accuracy
-    
+
+def save_to_csv(config, model_accuracy: float, best_model_accuracy: float):
+    with open(config.experiment.output, mode='a', newline='') as file:
+        writer = csv.writer(file)
+        
+        # Check if file is empty (write header only if the file is empty)
+        if file.tell() == 0:
+            writer.writerow([
+                'Model Name', 'Epochs', 'Batch Size', 'Learning Rate', 'Loss', 'Optimizer', 
+                'Scheduler', 'Test', 'Warmup', 'Patience', 'Pretrained', 'Work Sync Steps', 
+                'Work Local Steps', 'Work Batch Size', 'Num Workers',
+                'Model Accuracy', 'Best Model Accuracy'
+            ])
+        
+        # Write model configuration and results to CSV
+        row = [
+            config.model.name, config.model.epochs, config.model.batch_size, config.model.learning_rate, 
+            config.model.loss, config.model.optimizer, config.model.scheduler, config.model.test, 
+            config.model.warmup, config.model.patience, config.model.pretrained, 
+            config.model.work.sync_steps if config.model.work else None, 
+            config.model.work.local_steps if config.model.work else None, 
+            config.model.work.batch_size if config.model.work else None, 
+            config.model.num_workers, 
+            model_accuracy,  # Pass model accuracy
+            best_model_accuracy  # Pass best model accuracy
+        ]
+        writer.writerow(row)
+        print(row)
 
 if __name__ == '__main__':
     script_dir = Path(__file__).parent
@@ -454,4 +482,6 @@ if __name__ == '__main__':
     print(f'Model Test Accuracy: {model_acc:.2f}%')
     best_model_acc = evaluate_model(test_data, best_model)
     print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
+    save_to_csv(config, model_acc, best_model_acc)
+
     

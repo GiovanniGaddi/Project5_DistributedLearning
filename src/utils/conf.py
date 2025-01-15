@@ -27,6 +27,7 @@ class ExperimentConfig(BaseModel):
     name: str
     resume: bool
     version: float
+    output: Optional[Path] = "results.csv"
 
 class CheckpointConfig(BaseModel):
     dir: Path
