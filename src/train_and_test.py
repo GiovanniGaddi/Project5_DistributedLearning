@@ -259,8 +259,9 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
     list_optimizers = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate, momentum=0.9, weight_decay=4e-3) for k in range(K)]
     with tqdm(range(config.model.work.sync_steps), desc='Sync', position=0) as pbar_t:
         for t in pbar_t:
-            #old_models = [deepcopy_model(list_models[k]) for k in range(K)]
             for k in range(K):
+                for param, global_param in zip(list_models[k].parameters(), model.parameters()):
+                    param = global_param.clone()
                 for inputs, labels in training_data_splits[k][t]:
                     # transfer them to GPU
                     inputs, labels = inputs.to(device), labels.to(device)
@@ -283,14 +284,6 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
             list_gradients = []
             for k in range(K): # best performin variant (doesn't take into account only gradients but also weights and it's wrong but it works)
                 list_gradients.append([global_param - param for global_param, param in zip(model.parameters(), list_models[k].parameters())])
-            
-            # list_gradients = [[] for _ in range(K)]
-            # for k in range(K):
-            #     for global_param, param in zip(model.parameters(), list_models[k].parameters()):
-            #         if global_param.grad != None:
-            #             list_gradients[k].append(global_param.grad - param.grad)
-            #         else:
-            #             list_gradients[k].append(param.grad)
 
             # Now, average gradients across all nodes
             averaged_gradients = []
@@ -304,8 +297,6 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
                     param.grad = avg_grad.clone()
             optimizer.step()
     return losses, [100*correct/total for correct, total in zip(corrects, totals)]
-
-
 
 def defineTraining(config):
     if config.model.num_workers > 0:
