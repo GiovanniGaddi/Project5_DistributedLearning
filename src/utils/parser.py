@@ -23,7 +23,7 @@ class Parser():
         self.parser.add_argument('-bs', '--batch-size', type=int, dest='BS', help='Overload setted Batch Size')
         self.parser.add_argument('-ep', '--epochs', type=int, dest='EPOCHS', help='Overload setted Epochs')
 
-        self.parser.add_argument('-nw', '--number-workers', type=int, dest='NW', default=  0, help='Overload setted Number of Workers')
+        self.parser.add_argument('-nw', '--number-workers', type=int, dest='NW', help='Overload setted Number of Workers')
         self.parser.add_argument('-wss', '--worker-sync-step', type=int, dest='WSS', help='Overload setted workers Syncronised Steps')
         self.parser.add_argument('-wls', '--worker-local-step', type=int, dest='WLS', help='Overload setted workers Local Steps')
         self.parser.add_argument('-wbs', '--worker-batch-size', type=int, dest='WBS', help='Overload setted workers Batch Size')
@@ -39,8 +39,8 @@ class Parser():
         self.parser.add_argument('-opt', '--optimizer', type=str, dest='OPTIMIZER', help='Overrides previously set optimizer')
         self.parser.add_argument('-sch', '--scheduler', type=str, dest='SCHEDULER', help='Overrides previously set scheduler')
 
-        self.parser.add_argument('-pat', '--patience', type=int, dest='PATIENCE', help='Overrides previously set patience')
-        self.parser.add_argument('-wup', '--schewarmupduler', type=int, dest='WARMUP', help='Overrides previously set warmup')
+        self.parser.add_argument('-p', '--patience', type=int, dest='PATIENCE', help='Overrides previously set patience')
+        self.parser.add_argument('-wu', '--schewarmupduler', type=int, dest='WARMUP', help='Overrides previously set warmup')
 
     def parse_args(self):
         self.args = self.parser.parse_args()
@@ -60,10 +60,10 @@ class Parser():
         if self.args.EPOCHS is not None:
             config.model.epochs = self.args.EPOCHS        
 
-        if config.model.num_workers > 0 or self.args.NW > 0:
-
-            if self.args.NW > 0:
+        if self.args.NW is not None:
                 config.model.num_workers = self.args.NW
+
+        if config.model.num_workers > 0:
 
             if self.args.WSS is not None:
                 config.model.work.sync_steps = self.args.WSS

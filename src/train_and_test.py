@@ -73,17 +73,6 @@ Default momentum 0.9
 # [ ] Using two optimizers: one for the outer loop and one for the inner loop (+ analysis)
 
 validation_split = 0.1  # 10% of the training data will be used for validation
-best_model = None
-
-def split_dataset(dataset, k):
-    # Determine the sizes of each subset
-    subset_size = len(dataset) // k
-    remaining = len(dataset) % k
-    lengths = [subset_size + 1 if i < remaining else subset_size for i in range(k)]
-    
-    # Split the dataset
-    subsets = random_split(dataset, lengths)
-    return subsets
 
 def split_dataset(dataset, k):
     # Determine the sizes of each subset
@@ -182,12 +171,12 @@ def sel_loss(config):
         criterion = nn.CrossEntropyLoss()
     return criterion
 
-def sel_scheduler(config, optimizer):
+def sel_scheduler(config, optimizer, len_train_data: int):
     assert config.model.scheduler, "Scheduler not selected"
 
     warmup_epochs = config.model.warmup
     total_epochs = config.model.epochs
-    warmup_iters = warmup_epochs * 1 #[ ]len(train_loader)
+    warmup_iters = warmup_epochs * len_train_data
 
     if config.model.scheduler == 'CosineAnnealingLR':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -216,7 +205,7 @@ def sel_scheduler(config, optimizer):
         polynomial_scheduler = optim.lr_scheduler.LambdaLR(
             optimizer,
             lr_lambda=lambda step: (
-                (1 - (step - warmup_iters) / (total_epochs * 0 - warmup_iters)) ** 2 #[ ] Substitute 0 with len(train_loader)
+                (1 - (step - warmup_iters) / (total_epochs * len_train_data - warmup_iters)) ** 2
             ) if step >= warmup_iters else 1.0
         )
         scheduler = optim.lr_scheduler.SequentialLR(
@@ -236,44 +225,72 @@ def deepcopy_model(model):
             tmp_para.grad = para.grad.clone()
     return tmp_model
 
+def centralized(config, model, train_loader, optimizer, criterion, device, pbar):
+    running_loss = 0.0
+    correct = 0
+    total = 0
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+
+        # Forward pass
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+
+        # Backward pass and optimization
+        loss.backward()
+        optimizer.step()
+
+        # Track the loss and accuracy
+        running_loss += loss.item()
+        _, predicted = torch.max(outputs, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+    return [running_loss], [100 * correct/total]
+
+
 def localSDG(config, model, training_data_splits, optimizer, criterion, device, pbar):
+    losses = [0]*config.model.num_workers
+    totals = [0]*config.model.num_workers
+    corrects = [0]*config.model.num_workers
+    K = config.model.num_workers
+    list_models = [deepcopy_model(model) for _ in range(K)]
+    list_optimizers = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate, momentum=0.9, weight_decay=4e-3) for k in range(K)]
     with tqdm(range(config.model.work.sync_steps), desc='Sync', position=1) as pbar_t:
         for t in pbar_t:
-            list_models = [deepcopy_model(model) for i in range(config.model.num_workers)]
-            #tmp_optimizer, tmp_scheduler = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate) for k in range(K)]
-            # scheduler = [optim.lr_scheduler.CosineAnnealingLR(
-            #         tmp_optimizer, T_max=H, eta_min=0
-            #     
-            list_gradients = []
-            for k in range(config.model.num_workers):
+            #old_models = [deepcopy_model(list_models[k]) for k in range(K)]
+            for k in range(K):
                 for inputs, labels in training_data_splits[k][t]:
-                    # take images and labels from dataloader
                     # transfer them to GPU
                     inputs, labels = inputs.to(device), labels.to(device)
                     # reset gradients
-                    #tmp_optimizer[k].zero_grad()
-                    #list_models[k].zero_grad()
-
+                    list_optimizers[k].zero_grad()
                     # local forward pass
                     outputs = list_models[k](inputs)
                     loss = criterion(outputs, labels)
-                    
                     # local backward pass and optimization
                     loss.backward()
+                    list_optimizers[k].step()
                 
-                    # for param, global_param in zip(list_models[k].parameters(), model.parameters()):
-                    #     param = param - list_models[k].learning_rate * param.grad
+                    losses[k] += loss.item()
+                    _, predicted = torch.max(outputs, 1)
+                    totals[k] += labels.size(0)
+                    corrects[k] += (predicted == labels).sum().item()
 
-                    for param, global_param in zip(list_models[k].parameters(), model.parameters()):
-                        param.data = global_param.data - list_models[k].learning_rate * param.grad
-
-                    #tmp_optimizer[k].step()
-                
-            
                 pbar.write(f"Work{k+1:02} Loss: {loss}")
 
-            #list_gradients.append([param.grad for param in list_models[k].parameters()])
-            list_gradients.append([global_param - param for global_param, param in zip(model.parameters(), list_models[k].parameters())])
+            list_gradients = []
+            for k in range(K): # best performin variant (doesn't take into account only gradients but also weights and it's wrong but it works)
+                list_gradients.append([global_param - param for global_param, param in zip(model.parameters(), list_models[k].parameters())])
+            
+            # list_gradients = [[] for _ in range(K)]
+            # for k in range(K):
+            #     for global_param, param in zip(model.parameters(), list_models[k].parameters()):
+            #         if global_param.grad != None:
+            #             list_gradients[k].append(global_param.grad - param.grad)
+            #         else:
+            #             list_gradients[k].append(param.grad)
 
             # Now, average gradients across all nodes
             averaged_gradients = []
@@ -284,11 +301,22 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
             # Apply averaged gradients to the global model
             with torch.no_grad():
                 for param, avg_grad in zip(model.parameters(), averaged_gradients):
-                    param.grad = avg_grad
-                    param.data -= model.learning_rate * param.grad
+                    param.grad = avg_grad.clone()
+            optimizer.step()
+    return losses, [100*correct/total for correct, total in zip(corrects, totals)]
+
+
+
+def defineTraining(config):
+    if config.model.num_workers > 0:
+        return localSDG
+    else:
+        return centralized
 
 # Training loop with validation
 def train_model(config, train_data, val_data, model, device, optimizer, scheduler, criterion, checkpoint = None):
+    
+    best_model = None
     
     train_losses = []
     train_accuracies = []
@@ -301,90 +329,64 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
     else:
         patience = config.model.patience
 
+    #load values form checkpoint
     best_acc = 0.0 if checkpoint is None else checkpoint.best_acc
     start_epoch = 0 if checkpoint is None else checkpoint.start_epoch
 
-    work_data_splits = split_dataset(train_data, config.model.num_workers)
-    sync_data_split = [split_dataset(data,config.model.work.sync_steps) for data in work_data_splits]
-    sycn_data_loaders = [[DataLoader(data, batch_size=config.model.work.batch_size, shuffle=False, drop_last=False) for data in sync_step] for sync_step in sync_data_split]
-    
-
+    if config.model.num_workers > 0:
+        work_data_splits = split_dataset(train_data, config.model.num_workers)
+        sync_data_split = [split_dataset(data,config.model.work.sync_steps) for data in work_data_splits]
+        train_loader = [[DataLoader(data, batch_size=config.model.work.batch_size, shuffle=False, drop_last=False) for data in sync_step] for sync_step in sync_data_split]
+    else:
+        train_loader = DataLoader(train_data, batch_size=config.model.batch_size, shuffle=False, drop_last=False)
     val_loader = DataLoader(val_data, batch_size=config.model.batch_size, shuffle=False)
-    postfix = {'Val_Acc': '00.00%', 'Best_Acc': '00.00%'}
-    with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=0, postfix=postfix) as pbar:
+
+    train_func = defineTraining(config)
+
+    postfix = {'Val_Acc': '0.00%', 'Best_Acc': '0.00%'}
+    with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
         for epoch in pbar:
             model.train()
-            running_loss = 0.0
-            correct = 0
-            total = 0
-            start_time = time.time()
 
-            # Training phase
-            # for inputs, labels in train_loader:
-            #     inputs, labels = inputs.to(device), labels.to(device)
+            #Training phase
+            epoch_loss, epoch_acc = train_func(config, model, train_loader, optimizer, criterion, device, pbar)
 
-            #     optimizer.zero_grad()
-
-            #     # Forward pass
-            #     outputs = model(inputs)
-            #     loss = criterion(outputs, labels)
-
-            #     # Backward pass and optimization
-            #     loss.backward()
-            #     optimizer.step()
-
-            #     # Track the loss and accuracy
-            #     running_loss += loss.item()
-            #     _, predicted = torch.max(outputs, 1)
-            #     total += labels.size(0)
-            #     correct += (predicted == labels).sum().item()
-
-            
-
-            localSDG(config, model, sycn_data_loaders, optimizer, criterion, device, pbar)
-
-            epoch_loss = running_loss / len(train_data)
-            epoch_acc = 100 * correct / total
+            # epoch_loss = running_loss / len(train_data)
+            # epoch_acc = 100 * correct / total
             # print(f'Epoch [{epoch+1}/{config.model.epochs}], Loss: {epoch_loss:.4f}, Training Accuracy: {epoch_acc:.2f}%')
-        
-        train_losses.append(epoch_loss)
-        train_accuracies.append(epoch_acc)
+            train_losses.append(epoch_loss)
+            train_accuracies.append(epoch_acc)
 
-        scheduler.step()
+            scheduler.step()
 
-        # Validate the model on the validation set
-        val_loss, val_acc = validate_model(val_loader, criterion, model)
-        print(f'Validation Loss: {val_loss:.2f}, Validation Accuracy: {val_acc:.2f}%')
+            # Validate the model on the validation set
+            val_loss, val_acc = validate_model(val_loader, criterion, model)
 
-        val_losses.append(val_loss)
-        val_accuracies.append(val_acc)
+            val_losses.append(val_loss)
+            val_accuracies.append(val_acc)
 
-        # Save the model with the best accuracy on the validation set
-        if val_acc > best_acc:
-            best_acc = val_acc
-            save_checkpoint(epoch, model, optimizer, scheduler, best_acc, epoch_loss, config)
-            print(f"Saved new best model at epoch {epoch+1}")
-            best_model = deepcopy(model)
-            no_improvement_count = 0
-        else:
-            no_improvement_count += 1
+            # Save the model with the best accuracy on the validation set
+            if val_acc > best_acc:
+                best_acc = val_acc
+                save_checkpoint(epoch, model, optimizer, scheduler, best_acc, epoch_loss, config)
+                pbar.write(f"Saved new best model at epoch {epoch+1}")
+                best_model = deepcopy_model(model)
+                no_improvement_count = 0
+            else:
+                no_improvement_count += 1
 
-        print(f"Epoch time: {time.time() - start_time:.2f} seconds")
-        postfix['Val_Acc'] = f'{val_acc:.2f}%'
-        postfix['Best_Acc'] = f'{best_acc:.2f}%'
-        pbar.set_postfix(postfix)
+            postfix['Val_Acc'] = f'{val_acc:.2f}%'
+            postfix['Best_Acc'] = f'{best_acc:.2f}%'
+            pbar.set_postfix(postfix)
 
-        if no_improvement_count >= patience:
-            print(f"Early stopping triggered after {epoch + 1} epochs.")
-            exit()
+            if no_improvement_count >= patience:
+                print(f"Early stopping triggered after {epoch + 1} epochs.")
+                break
 
 
-
-    plot_metrics("centralized", config, train_losses, train_accuracies, val_losses, val_accuracies)
+    plot_metrics("centralized" if config.model.num_workers > 0 else "distributed", config, train_losses, train_accuracies, val_losses, val_accuracies)
     save_checkpoint(epoch, model, optimizer, scheduler, val_acc, epoch_loss, config)
-
-    print("Testing best model...")
-    evaluate_model(val_data, best_model)
+    return best_model
 
 # Validation function
 def validate_model(val_loader, criterion, model):
@@ -423,12 +425,13 @@ def evaluate_model(test_data, model):
             correct += (predicted == labels).sum().item()
 
     accuracy = 100 * correct / total
-    print(f'Test Accuracy: {accuracy:.2f}%')
+    return accuracy
+    
 
 if __name__ == '__main__':
     script_dir = Path(__file__).parent
 
-    yaml_path = script_dir / 'config' / 'Lenet.yaml'    
+    yaml_path = script_dir / 'config' / 'Distributed_Lenet.yaml'    
     parser = Parser(yaml_path)
     config, device = parser.parse_args()
     
@@ -439,14 +442,15 @@ if __name__ == '__main__':
     model = model.to(device)
     loss_function = sel_loss(config)
     optimizer = sel_optimizer(config, model)
-    scheduler = sel_scheduler(config, optimizer)
+    scheduler = sel_scheduler(config, optimizer, len(train_data))
     
     
     if config.experiment.resume:
         model, optimizer, scheduler, checkpoint = load_checkpoint(config)
     
-      
-    train_model(config, train_data, val_data, model, device, optimizer, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
-    evaluate_model(test_data, model)
-
+    best_model = train_model(config, train_data, val_data, model, device, optimizer, scheduler, loss_function, checkpoint = checkpoint if config.experiment.resume else None)
+    model_acc = evaluate_model(test_data, model)
+    print(f'Model Test Accuracy: {model_acc:.2f}%')
+    best_model_acc = evaluate_model(val_data, best_model)
+    print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
     

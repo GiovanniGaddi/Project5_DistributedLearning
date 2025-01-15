@@ -4,9 +4,11 @@ model:
   batch_size: 64
   learning_rate: 1e-2
   loss: CSE
-  optimizer: SGD
-  scheduler: try
+  optimizer: LAMB
+  scheduler: WarmUpPolynomialDecayLR
   test: False
+  warmup: 15
+  patience: 15
   work: 
     sync_steps: 12
     local_steps: 64

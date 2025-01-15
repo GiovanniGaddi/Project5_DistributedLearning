@@ -17,8 +17,8 @@ class ModelConfig(BaseModel):
     optimizer: str
     scheduler: str
     test: Optional[bool] = False
-    warmup: int
-    patience: int
+    warmup: Optional[int] = None
+    patience: Optional[int] = None
     pretrained: Optional[Path] = None
     work: Optional[WorkerConfig] = None
     num_workers: Optional[int] = 0
