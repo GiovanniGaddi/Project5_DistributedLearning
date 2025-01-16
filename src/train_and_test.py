@@ -14,6 +14,7 @@ from copy import deepcopy
 from tqdm import tqdm
 from utils.plot import plot_metrics
 from utils.optim import LAMB, LARS
+import math
 
 
 '''
@@ -255,14 +256,15 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
     totals = [0]*config.model.num_workers
     corrects = [0]*config.model.num_workers
     K = config.model.num_workers
+    H = config.model.work.local_steps
     list_models = [deepcopy_model(model) for _ in range(K)]
     list_optimizers = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate, momentum=0.9, weight_decay=4e-3) for k in range(K)]
+    iters = [iter(train_loader) for train_loader in training_data_splits]
     with tqdm(range(config.model.work.sync_steps), desc='Sync', position=0) as pbar_t:
         for t in pbar_t:
             for k in range(K):
-                for param, global_param in zip(list_models[k].parameters(), model.parameters()):
-                    param = global_param.clone()
-                for inputs, labels in training_data_splits[k][t]:
+                for h in range(H):
+                    inputs, labels = next(iters[k])
                     # transfer them to GPU
                     inputs, labels = inputs.to(device), labels.to(device)
                     # reset gradients
@@ -273,7 +275,6 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
                     # local backward pass and optimization
                     loss.backward()
                     list_optimizers[k].step()
-                
                     losses[k] += loss.item()
                     _, predicted = torch.max(outputs, 1)
                     totals[k] += labels.size(0)
@@ -295,7 +296,8 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
             with torch.no_grad():
                 for param, avg_grad in zip(model.parameters(), averaged_gradients):
                     param.grad = avg_grad.clone()
-            optimizer.step()
+                    param.data -= model.learning_rate * param.grad
+            
     return losses, [100*correct/total for correct, total in zip(corrects, totals)]
 
 def defineTraining(config):
@@ -326,8 +328,7 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
 
     if config.model.num_workers > 0:
         work_data_splits = split_dataset(train_data, config.model.num_workers)
-        sync_data_split = [split_dataset(data,config.model.work.sync_steps) for data in work_data_splits]
-        train_loader = [[DataLoader(data, batch_size=config.model.work.batch_size, shuffle=False, drop_last=False) for data in sync_step] for sync_step in sync_data_split]
+        train_loader = [DataLoader(data, batch_size=config.model.work.batch_size, shuffle=False, drop_last=False) for data in work_data_splits]
     else:
         train_loader = DataLoader(train_data, batch_size=config.model.batch_size, shuffle=False, drop_last=False)
     val_loader = DataLoader(val_data, batch_size=config.model.batch_size, shuffle=False)
@@ -337,6 +338,12 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
     postfix = {'Val_Acc': '0.00%', 'Best_Acc': '0.00%'}
     with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
         for epoch in pbar:
+            
+            if epoch < 15:
+                model.learning_rate = config.model.learning_rate*(0.1+epoch/config.model.warmup)
+            else:
+                prog = (epoch - config.model.warmup) / (config.model.epochs - config.model.warmup)
+                model.learning_rate = 0 + (config.model.learning_rate - 0)*0.5*(1+math.cos(math.pi*prog))
             model.train()
 
             #Training phase
@@ -458,7 +465,7 @@ if __name__ == '__main__':
     train_data, val_data, test_data = load_cifar100(config)
 
     model = sel_model(config)
-    device = sel_device(config)
+    device = sel_device(device)
     model = model.to(device)
     loss_function = sel_loss(config)
     optimizer = sel_optimizer(config, model)
@@ -474,5 +481,3 @@ if __name__ == '__main__':
     best_model_acc = evaluate_model(test_data, best_model)
     print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
     save_to_csv(config, model_acc, best_model_acc)
-
-    
