@@ -264,7 +264,11 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
         for t in pbar_t:
             for k in range(K):
                 for h in range(H):
-                    inputs, labels = next(iters[k])
+                    try:
+                        inputs, labels = next(iters[k])
+                    except StopIteration:
+                        iters[k] = iter(training_data_splits[k])
+                        inputs, labels = next(iters[k])
                     # transfer them to GPU
                     inputs, labels = inputs.to(device), labels.to(device)
                     # reset gradients
@@ -339,11 +343,12 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
     with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
         for epoch in pbar:
             
-            if epoch < 15:
-                model.learning_rate = config.model.learning_rate*(0.1+epoch/config.model.warmup)
-            else:
-                prog = (epoch - config.model.warmup) / (config.model.epochs - config.model.warmup)
-                model.learning_rate = 0 + (config.model.learning_rate - 0)*0.5*(1+math.cos(math.pi*prog))
+            # if epoch < 15:
+            #     model.learning_rate = config.model.learning_rate*(0.1+epoch/config.model.warmup)
+            # else:
+            #     prog = (epoch - config.model.warmup) / (config.model.epochs - config.model.warmup)
+            #     model.learning_rate = 0 + (config.model.learning_rate - 0)*0.5*(1+math.cos(math.pi*prog))
+            model.learning_rate = scheduler.get_last_lr()[0]
             model.train()
 
             #Training phase
