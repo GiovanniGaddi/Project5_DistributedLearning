@@ -76,6 +76,24 @@ Default momentum 0.9
 
 validation_split = 0.1  # 10% of the training data will be used for validation
 
+def iid_sharding(dataset, num_shards):
+    #
+    tmp_data = [[] for _ in range(100)]
+    for j in trange(dataset.__len__()):
+        tmp_data[dataset.__getitem__(j)[1]].append(j)
+    
+    data_idx = []
+    for idxs in tmp_data:
+        data_idx.extend(idxs)
+
+    # Divide into shards
+    data_shards = [data_idx[i::num_shards] for i in range(num_shards)]
+
+    # Create DataLoaders for each shard
+    subsets = [Subset(dataset, shard) for shard in data_shards]
+
+    return subsets
+
 def split_dataset(dataset, k):
     # Determine the sizes of each subset
     subset_size = len(dataset) // k
@@ -331,8 +349,9 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
     start_epoch = 0 if checkpoint is None else checkpoint.start_epoch
 
     if config.model.num_workers > 0:
-        work_data_splits = split_dataset(train_data, config.model.num_workers)
-        train_loader = [DataLoader(data, batch_size=config.model.work.batch_size, shuffle=False, drop_last=False) for data in work_data_splits]
+        #work_data_splits = split_dataset(train_data, config.model.num_workers)
+        work_data_splits = iid_sharding(train_data, config.model.num_workers)
+        train_loader = [DataLoader(data, batch_size=config.model.work.batch_size, shuffle=True, drop_last=False) for data in work_data_splits]
     else:
         train_loader = DataLoader(train_data, batch_size=config.model.batch_size, shuffle=False, drop_last=False)
     val_loader = DataLoader(val_data, batch_size=config.model.batch_size, shuffle=False)
