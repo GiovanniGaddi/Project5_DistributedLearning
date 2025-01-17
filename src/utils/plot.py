@@ -4,7 +4,10 @@ import os
 def plot_metrics(type:str, config, train_losses: list, train_accuracies: list, val_losses: list, val_accuracies: list):
 
     #os.makedirs('../plots', exist_ok=True)
-    filename = f"{type}_opt-{config.model.optimizer}_sch-{config.model.scheduler}_lr-{config.model.learning_rate}_bs-{config.model.batch_size}.png"
+    filename = f"{type}_opt-{config.model.optimizer}_sch-{config.model.scheduler}_lr-{config.model.learning_rate}_bs-{config.model.batch_size}"
+    if config.model.num_workers > 0:
+        filename += f"_K-{config.model.num_workers}_H-{config.model.work.local_steps}"
+    filename += ".png"
     dirname = 'plots'
     filepath = os.path.join(dirname, filename)
     os.makedirs(dirname, exist_ok=True)
