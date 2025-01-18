@@ -1,3 +1,9 @@
 Model Name,Epochs,Batch Size,Learning Rate,Loss,Optimizer,Scheduler,Test,Warmup,Patience,Pretrained,Work Sync Steps,Work Local Steps,Work Batch Size,Num Workers,Model Accuracy,Best Model Accuracy
 LeNet,1,64,0.01,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,12,64,32,4,1.08,1.08
 LeNet,1,64,0.01,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,,,,0,2.2,2.2
+LeNet,150,64,0.01,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,11,4,64,16,1.0,1.0
+LeNet,150,64,0.1,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,11,8,64,8,16.57,16.57
+LeNet,150,64,0.01,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,32,2,43.65,44.49
+LeNet,150,64,0.02,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,32,2,45.96,46.73
+LeNet,150,64,0.01,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,32,2,43.14,44.11
+LeNet,150,64,0.02,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,32,2,46.65,45.7

@@ -1,0 +1,2 @@
+Model Name,Epochs,Batch Size,Learning Rate,Loss,Optimizer,Scheduler,Test,Warmup,Patience,Pretrained,Work Sync Steps,Work Local Steps,Work Batch Size,Num Workers,Slowmo LR,SlowMo Momentum,Model Accuracy,Best Model Accuracy
+LeNet,150,64,0.08,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,64,2,1.0,0.6,45.88,45.76

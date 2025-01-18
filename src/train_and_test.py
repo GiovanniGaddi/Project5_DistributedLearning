@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 from torchvision import datasets, transforms, models 
 import time
 from copy import deepcopy
@@ -11,10 +11,12 @@ from pathlib import Path
 from models.lenet5 import leNet5
 from utils.parser import Parser
 from copy import deepcopy
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from utils.plot import plot_metrics
 from utils.optim import LAMB, LARS
 import math
+
+
 
 
 '''
@@ -63,15 +65,15 @@ Default momentum 0.9
 
 
 '''
-# [X] Plot
-# [X] Scheduler
-# [X] Optimizer
-# [X] LAMB&LARS
+# [x] Plot
+# [x] Scheduler
+# [x] Optimizer
+# [x] LAMB&LARS
 
 # Next steps to end part 3:
 # [ ] hyperparameter tuning and comparison
-# [ ] IID sharding and training with LocalSGD and PostLocalSGD
-# [ ] Performing multiple local steps, scaling the number of iteration
+# [x] IID sharding and training with LocalSGD and PostLocalSGD
+# [x] Performing multiple local steps, scaling the number of iteration
 # [ ] Using two optimizers: one for the outer loop and one for the inner loop (+ analysis)
 
 validation_split = 0.1  # 10% of the training data will be used for validation
@@ -79,7 +81,7 @@ validation_split = 0.1  # 10% of the training data will be used for validation
 def iid_sharding(dataset, num_shards):
     #
     tmp_data = [[] for _ in range(100)]
-    for j in trange(dataset.__len__()):
+    for j in trange(dataset.__len__(), desc= "Sharding"):
         tmp_data[dataset.__getitem__(j)[1]].append(j)
     
     data_idx = []
@@ -173,14 +175,15 @@ def sel_device(device):
     
 def sel_optimizer(config, model):
     assert config.model.optimizer, "Optimizer not selected"
+    weight_decay = config.model.weight_decay
     if config.model.optimizer == 'AdamW':
-        optimizer = optim.AdamW(model.parameters(), lr=config.model.learning_rate, weight_decay=0.04)
+        optimizer = optim.AdamW(model.parameters(), lr=config.model.learning_rate, weight_decay=weight_decay)
     elif config.model.optimizer == "SGDM":
-        optimizer = optim.SGD(model.parameters(), lr=config.model.learning_rate, momentum=0.9, weight_decay=0.004)
+        optimizer = optim.SGD(model.parameters(), lr=config.model.learning_rate, momentum=0.9, weight_decay=weight_decay)
     elif config.model.optimizer == "LARS":
-        optimizer = LARS(model.parameters(), lr=config.model.learning_rate, momentum=0.9, weight_decay=0.004)
+        optimizer = LARS(model.parameters(), lr=config.model.learning_rate, momentum=0.9, weight_decay=weight_decay)
     elif config.model.optimizer == "LAMB":
-        optimizer = LAMB(model.parameters(), lr=config.model.learning_rate, weight_decay=0.04)
+        optimizer = LAMB(model.parameters(), lr=config.model.learning_rate, weight_decay=weight_decay)
     else:
         raise ValueError(f"Unsupported optimizer: {config.model.optimizer}")
     return optimizer
@@ -236,7 +239,6 @@ def sel_scheduler(config, optimizer, len_train_data: int):
         raise ValueError(f"Unsupported scheduler: {config.scheduler.name}")
     return scheduler
 
-
 def deepcopy_model(model):
     # a dirty hack....
     tmp_model = deepcopy(model)
@@ -275,8 +277,11 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
     corrects = [0]*config.model.num_workers
     K = config.model.num_workers
     H = config.model.work.local_steps
+    alpha =  0.0 if config.model.slowmo is None else config.model.slowmo.learning_rate
+    beta = 0.0 if config.model.slowmo is None else config.model.slowmo.momentum
+    slowmo_buffer = [torch.zeros_like(param) for param in model.parameters()]    
     list_models = [deepcopy_model(model) for _ in range(K)]
-    list_optimizers = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate, momentum=0.9, weight_decay=4e-3) for k in range(K)]
+    list_optimizers = [optim.SGD(list_models[k].parameters(), lr=list_models[k].learning_rate, momentum=0.9, weight_decay=config.model.weight_decay) for k in range(K)]
     iters = [iter(train_loader) for train_loader in training_data_splits]
     with tqdm(range(config.model.work.sync_steps), desc='Sync', position=0) as pbar_t:
         for t in pbar_t:
@@ -304,21 +309,25 @@ def localSDG(config, model, training_data_splits, optimizer, criterion, device, 
 
                 pbar.write(f"Work{k+1:02} Loss: {loss}")
 
-            list_gradients = []
-            for k in range(K): # best performin variant (doesn't take into account only gradients but also weights and it's wrong but it works)
-                list_gradients.append([global_param - param for global_param, param in zip(model.parameters(), list_models[k].parameters())])
+            # list_gradients = []
+            # for k in range(K): # best performin variant (doesn't take into account only gradients but also weights and it's wrong but it works)
+            #     list_gradients.append([global_param - param for global_param, param in zip(model.parameters(), list_models[k].parameters())])
+            list_gradients = [[param for param in list_models[k].parameters()] for k in range(K)]
 
             # Now, average gradients across all nodes
             averaged_gradients = []
             for param_gradients in zip(*list_gradients):
                 avg_grad = torch.mean(torch.stack(param_gradients), dim=0)
                 averaged_gradients.append(avg_grad)
-
+                
+            slowmo_buffer = [beta*slowmo_param + (1/model.learning_rate)*(param - avg_param) for slowmo_param, avg_param, param in zip(slowmo_buffer, averaged_gradients, model.parameters())]
             # Apply averaged gradients to the global model
+            if config.model.slowmo is None:
+                alpha = model.learning_rate
             with torch.no_grad():
-                for param, avg_grad in zip(model.parameters(), averaged_gradients):
-                    param.grad = avg_grad.clone()
-                    param.data -= model.learning_rate * param.grad
+                for param, slowmo_param in zip(model.parameters(), slowmo_buffer):
+                    param.grad = slowmo_param.clone()
+                    param.data -= alpha *model.learning_rate * param.grad
             
     return losses, [100*correct/total for correct, total in zip(corrects, totals)]
 
@@ -459,8 +468,9 @@ def save_to_csv(config, model_accuracy: float, best_model_accuracy: float):
         if file.tell() == 0:
             writer.writerow([
                 'Model Name', 'Epochs', 'Batch Size', 'Learning Rate', 'Loss', 'Optimizer', 
-                'Scheduler', 'Test', 'Warmup', 'Patience', 'Pretrained', 'Work Sync Steps', 
-                'Work Local Steps', 'Work Batch Size', 'Num Workers',
+                'Scheduler', 'Test', 'Warmup', 'Patience', 'Weight Decay','Pretrained',
+                'Work Sync Steps', 'Work Local Steps', 'Work Batch Size', 'Num Workers',
+                'Slowmo LR', 'SlowMo Momentum',
                 'Model Accuracy', 'Best Model Accuracy'
             ])
         
@@ -468,11 +478,13 @@ def save_to_csv(config, model_accuracy: float, best_model_accuracy: float):
         row = [
             config.model.name, config.model.epochs, config.model.batch_size, config.model.learning_rate, 
             config.model.loss, config.model.optimizer, config.model.scheduler, config.model.test, 
-            config.model.warmup, config.model.patience, config.model.pretrained, 
+            config.model.warmup, config.model.patience, config.model.weight_decay, config.model.pretrained, 
             config.model.work.sync_steps if config.model.work else None, 
             config.model.work.local_steps if config.model.work else None, 
-            config.model.work.batch_size if config.model.work else None, 
-            config.model.num_workers, 
+            config.model.work.batch_size if config.model.work else None,
+            config.model.num_workers,
+            config.model.slowmo.learning_rate if config.model.slowmo else config.model.learning_rate,
+            config.model.slowmo.momentum if config.model.slowmo else 0,
             model_accuracy,  # Pass model accuracy
             best_model_accuracy  # Pass best model accuracy
         ]

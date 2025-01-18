@@ -8,6 +8,10 @@ class WorkerConfig(BaseModel):
     local_steps: int
     batch_size: int
 
+class SlowMOConfig(BaseModel):
+    learning_rate: float
+    momentum: float
+
 class ModelConfig(BaseModel):
     name: str
     epochs: int
@@ -16,6 +20,8 @@ class ModelConfig(BaseModel):
     loss: str
     optimizer: str
     scheduler: str
+    weight_decay: float
+    slowmo:Optional[SlowMOConfig] = None
     test: Optional[bool] = False
     warmup: Optional[int] = None
     patience: Optional[int] = None

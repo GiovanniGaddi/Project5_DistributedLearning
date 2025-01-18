@@ -10,6 +10,9 @@ model:
   warmup: 15
   patience: 15
   weight_decay: 1e-4
+  slowmo:
+    learning_rate: 1
+    momentum: 0.6
   work: 
     sync_steps: 88
     local_steps: 4
@@ -19,6 +22,7 @@ experiment:
   name: train_lenet_cifar100
   resume: False
   version: 0.0
+  output: slowmo.csv
 checkpoint:
   dir: ./checkpoints
   save_top_k: 3

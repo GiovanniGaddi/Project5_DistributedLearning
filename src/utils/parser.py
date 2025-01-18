@@ -23,6 +23,9 @@ class Parser():
         self.parser.add_argument('-bs', '--batch-size', type=int, dest='BS', help='Overload setted Batch Size')
         self.parser.add_argument('-ep', '--epochs', type=int, dest='EPOCHS', help='Overload setted Epochs')
 
+        self.parser.add_argument('-sm', '--slowmo-momentum', type=float, dest='SM', help='Overrides setted SlowMo Momentum')
+        self.parser.add_argument('-slr', '--slowmo-learning-rate', type=float, dest='SLR', help='Overrides setted SlowMo Learning Rate')
+
         self.parser.add_argument('-nw', '--number-workers', type=int, dest='NW', help='Overload setted Number of Workers')
         self.parser.add_argument('-wss', '--worker-sync-step', type=int, dest='WSS', help='Overload setted workers Syncronised Steps')
         self.parser.add_argument('-wls', '--worker-local-step', type=int, dest='WLS', help='Overload setted workers Local Steps')
@@ -39,8 +42,9 @@ class Parser():
         self.parser.add_argument('-opt', '--optimizer', type=str, dest='OPTIMIZER', help='Overrides previously set optimizer')
         self.parser.add_argument('-sch', '--scheduler', type=str, dest='SCHEDULER', help='Overrides previously set scheduler')
 
-        self.parser.add_argument('-p', '--patience', type=int, dest='PATIENCE', help='Overrides previously set patience')
-        self.parser.add_argument('-wu', '--schewarmupduler', type=int, dest='WARMUP', help='Overrides previously set warmup')
+        self.parser.add_argument('-p', '--patience', type=int, dest='PATIENCE', help='Overrides previously set Patience')
+        self.parser.add_argument('-wu', '--schewarmupduler', type=int, dest='WARMUP', help='Overrides previously set Warmup')
+        self.parser.add_argument('-wd', '--weight-decay', type=float, dest='WD', help='Overrides previously set Weight Decay')
 
     def parse_args(self):
         self.args = self.parser.parse_args()
@@ -58,7 +62,16 @@ class Parser():
             config.model.batch_size = self.args.BS
 
         if self.args.EPOCHS is not None:
-            config.model.epochs = self.args.EPOCHS        
+            config.model.epochs = self.args.EPOCHS
+
+        if config.model.slowmo is not None:
+
+            if self.args.SM is not None:
+                config.model.slowmo.momentum = self.args.SM
+
+            if self.args.SLR is not None:
+                config.model.slowmo.learning_rate = self.args.SLR
+
 
         if self.args.NW is not None:
                 config.model.num_workers = self.args.NW
@@ -105,6 +118,9 @@ class Parser():
 
         if self.args.PATIENCE is not None:
             config.model.patience = self.args.PATIENCE
+        
+        if self.args.WD is not None:
+            config.model.weight_decay = self.args.WD
         
         config.checkpoint.dir = os.path.join(config.checkpoint.dir,config.experiment.name)
         os.makedirs(config.checkpoint.dir, exist_ok=True)
