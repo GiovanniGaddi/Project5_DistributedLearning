@@ -19,17 +19,18 @@ class Parser():
         self.parser.add_argument('-c', '--config', type=Path, required=True if config_path is None else False, default=config_path, dest='CONFIG', help='Configuration file Path')
         self.parser.add_argument('--cpu', action='store_true', dest='CPU_F', help='Set CPU as Device')
 
-        self.parser.add_argument('-lr', '--learning-rate', type=float, dest='LR', help='Overload setted Learning Rate')
-        self.parser.add_argument('-bs', '--batch-size', type=int, dest='BS', help='Overload setted Batch Size')
-        self.parser.add_argument('-ep', '--epochs', type=int, dest='EPOCHS', help='Overload setted Epochs')
+        self.parser.add_argument('-lr', '--learning-rate', type=float, dest='LR', help='Overload set Learning Rate')
+        self.parser.add_argument('-bs', '--batch-size', type=int, dest='BS', help='Overload set Batch Size')
+        self.parser.add_argument('-ep', '--epochs', type=int, dest='EPOCHS', help='Overload set Epochs')
 
-        self.parser.add_argument('-sm', '--slowmo-momentum', type=float, dest='SM', help='Overrides setted SlowMo Momentum')
-        self.parser.add_argument('-slr', '--slowmo-learning-rate', type=float, dest='SLR', help='Overrides setted SlowMo Learning Rate')
+        self.parser.add_argument('-sm', '--slowmo-momentum', type=float, dest='SM', help='Overrides set SlowMo Momentum')
+        self.parser.add_argument('-slr', '--slowmo-learning-rate', type=float, dest='SLR', help='Overrides set SlowMo Learning Rate')
 
-        self.parser.add_argument('-nw', '--number-workers', type=int, dest='NW', help='Overload setted Number of Workers')
-        self.parser.add_argument('-wss', '--worker-sync-step', type=int, dest='WSS', help='Overload setted workers Syncronised Steps')
-        self.parser.add_argument('-wls', '--worker-local-step', type=int, dest='WLS', help='Overload setted workers Local Steps')
-        self.parser.add_argument('-wbs', '--worker-batch-size', type=int, dest='WBS', help='Overload setted workers Batch Size')
+        self.parser.add_argument('-nw', '--number-workers', type=int, dest='NW', help='Overload set Number of Workers')
+        self.parser.add_argument('-wss', '--worker-sync-step', type=int, dest='WSS', help='Overload set workers Syncronised Steps')
+        self.parser.add_argument('-wls', '--worker-local-step', type=int, dest='WLS', help='Overload set workers Local Steps')
+        self.parser.add_argument('-wbs', '--worker-batch-size', type=int, dest='WBS', help='Overload set workers Batch Size')
+        self.parser.add_argument('-dwl', '--dynamic-local-step', action='store_true', dest='DWLS', help='Overload set workers Dynamic Local Step')
         
 
         self.parser.add_argument('-P', '--pretrained', type=Path, dest='PRETRAINED', help='Path to the pretrained Model (Checkpoint)')
@@ -86,6 +87,9 @@ class Parser():
             
             if self.args.WBS is not None:
                 config.model.work.batch_size = self.args.WBS
+            
+            if self.args.DWLS is not None:
+                config.model.work.dynamic = self.args.DWLS
         
         else:
             config.model.num_workers = 0
