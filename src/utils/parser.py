@@ -23,6 +23,13 @@ class Parser():
         self.parser.add_argument('-bs', '--batch-size', type=int, dest='BS', help='Overload set Batch Size')
         self.parser.add_argument('-ep', '--epochs', type=int, dest='EPOCHS', help='Overload set Epochs')
 
+        self.parser.add_argument('-opt', '--optimizer', type=str, dest='OPTIMIZER', help='Overrides previously set optimizer')
+        self.parser.add_argument('-sch', '--scheduler', type=str, dest='SCHEDULER', help='Overrides previously set scheduler')
+
+        self.parser.add_argument('-p', '--patience', type=int, dest='PATIENCE', help='Overrides previously set Patience')
+        self.parser.add_argument('-wu', '--schewarmupduler', type=int, dest='WARMUP', help='Overrides previously set Warmup')
+        self.parser.add_argument('-wd', '--weight-decay', type=float, dest='WD', help='Overrides previously set Weight Decay')
+
         self.parser.add_argument('-sm', '--slowmo-momentum', type=float, dest='SM', help='Overrides set SlowMo Momentum')
         self.parser.add_argument('-slr', '--slowmo-learning-rate', type=float, dest='SLR', help='Overrides set SlowMo Learning Rate')
 
@@ -30,7 +37,10 @@ class Parser():
         self.parser.add_argument('-wss', '--worker-sync-step', type=int, dest='WSS', help='Overload set workers Syncronised Steps')
         self.parser.add_argument('-wls', '--worker-local-step', type=int, dest='WLS', help='Overload set workers Local Steps')
         self.parser.add_argument('-wbs', '--worker-batch-size', type=int, dest='WBS', help='Overload set workers Batch Size')
-        self.parser.add_argument('-dwl', '--dynamic-local-step', action='store_true', dest='DWLS', help='Overload set workers Dynamic Local Step')
+        
+        self.dynamic_steps = self.parser.add_mutually_exclusive_group()
+        self.dynamic_steps.add_argument('-edl', '--enable-dynamic-local-step', action='store_true', dest='DWLS', help='Set workers Dynamic Local Step')
+        self.dynamic_steps.add_argument('-ddl', '--disable-dynamic-local-step', action='store_false', dest='DWLS', help='Unset workers Dynamic Local Step')
         
 
         self.parser.add_argument('-P', '--pretrained', type=Path, dest='PRETRAINED', help='Path to the pretrained Model (Checkpoint)')
@@ -40,12 +50,7 @@ class Parser():
         self.parser.add_argument('-en', '--experiment-name', type=str, dest='EXPERIMENT_NAME', help='Change Experiment')
         self.parser.add_argument('-v', '--version', type=float, dest='VERSION', help='Update Version')
 
-        self.parser.add_argument('-opt', '--optimizer', type=str, dest='OPTIMIZER', help='Overrides previously set optimizer')
-        self.parser.add_argument('-sch', '--scheduler', type=str, dest='SCHEDULER', help='Overrides previously set scheduler')
-
-        self.parser.add_argument('-p', '--patience', type=int, dest='PATIENCE', help='Overrides previously set Patience')
-        self.parser.add_argument('-wu', '--schewarmupduler', type=int, dest='WARMUP', help='Overrides previously set Warmup')
-        self.parser.add_argument('-wd', '--weight-decay', type=float, dest='WD', help='Overrides previously set Weight Decay')
+        
 
     def parse_args(self):
         self.args = self.parser.parse_args()
