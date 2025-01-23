@@ -7,6 +7,7 @@ class WorkerConfig(BaseModel):
     sync_steps: int
     local_steps: int
     batch_size: int
+    dynamic: Optional[bool] = False
 
 class SlowMOConfig(BaseModel):
     learning_rate: float
