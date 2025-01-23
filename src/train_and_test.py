@@ -416,10 +416,30 @@ def train_model(config, train_data, val_data, model, device, optimizer, schedule
                 print(f"Early stopping triggered after {epoch + 1} epochs.")
                 break
 
+            if config.model.work.dynamic:
+                update_steps(config, val_losses)
+                
 
     plot_metrics("distributed" if config.model.num_workers > 0 else "centralized", config, train_losses, train_accuracies, val_losses, val_accuracies)
     save_checkpoint(epoch, model, optimizer, scheduler, val_acc, epoch_loss, config)
     return best_model
+    
+def update_steps(config, loss_history: list): 
+    # if at least 2 (could become an hyperparam) losses have been computed
+    if len(loss_history) > 2:
+        # if the loss has increased during the last 2 epochs
+        if loss_history[-1] > loss_history[-2] and loss_history[-2] > loss_history[-3]: #17m25s - 56.23 - 2 workers | 15m22s - 56.60 - 4 workers | 13m32s - 52.7 - 8 workers
+            # halve the local steps (min 4 bu could be as low as 1)
+            if config.model.work.local_steps > 4:    
+                config.model.work.local_steps //= 2
+        if # if the loss has decreased over the last 2 epochs
+        elif loss_history[-1] < loss_history[-2] and loss_history[-2] < loss_history[-3]:
+            # double the local steps (max 64 but could be higher)
+            if config.model.work.local_steps < 64:
+                config.model.work.local_steps *= 2
+        # adapt the synchronization steps to the new value
+        config.model.work.sync_steps = 704 // (config.model.work.local_steps * config.model.num_workers)
+    return
 
 # Validation function
 def validate_model(val_loader, criterion, model):
