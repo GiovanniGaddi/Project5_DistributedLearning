@@ -39,7 +39,7 @@ def deepcopy_model(model: torch.nn.Module) -> torch.nn.Module:
             tmp_para.grad = para.grad.clone()
     return tmp_model
 
-def save_to_csv(config: Config, model_accuracy: float, best_model_accuracy: float)-> None:
+def save_to_csv(config: Config, meta_config: dict, model_accuracy: float, best_model_accuracy: float)-> None:
     with open(config.experiment.output, mode='a', newline='') as file:
         writer = csv.writer(file)
         
@@ -48,7 +48,7 @@ def save_to_csv(config: Config, model_accuracy: float, best_model_accuracy: floa
             writer.writerow([
                 'Model Name', 'Epochs', 'Batch Size', 'Learning Rate', 'Loss', 'Optimizer', 
                 'Scheduler', 'Test', 'Warmup', 'Patience', 'Weight Decay','Pretrained',
-                'Work Sync Steps', 'Work Local Steps', 'Work Batch Size', 'Num Workers',
+                'Total Sync Steps','Work Sync Steps', 'Work Local Steps', 'Work Batch Size', 'Num Workers',
                 'Slowmo LR', 'SlowMo Momentum', 'Dynamic LS',
                 'Model Accuracy', 'Best Model Accuracy'
             ])
@@ -58,6 +58,7 @@ def save_to_csv(config: Config, model_accuracy: float, best_model_accuracy: floa
             config.model.name, config.model.epochs, config.model.batch_size, config.model.learning_rate, 
             config.model.loss, config.model.optimizer, config.model.scheduler, config.model.test, 
             config.model.warmup, config.model.patience, config.model.weight_decay, config.model.pretrained, 
+            meta_config['tot_ss']if config.model.work else None,
             config.model.work.sync_steps if config.model.work else None, 
             config.model.work.local_steps if config.model.work else None, 
             config.model.work.batch_size if config.model.work else None,
