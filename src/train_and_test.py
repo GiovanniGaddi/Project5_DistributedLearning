@@ -131,13 +131,16 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
 
     train_func = defineTraining(config.model)
 
-    meta_config= {
-        'budget': max([len(loader) for loader in train_loader]),
-        'ls': config.model.work.local_steps,
-        'no_impr_count':0,
-        '3loss': None,
-        'tot_ss': 0 if config.model.work.dynamic else config.model.work.sync_steps*config.model.epochs
-    }
+    if config.model.num_workers > 0:
+        meta_config= {
+            'budget': max([len(loader) for loader in train_loader]),
+            'ls': config.model.work.local_steps,
+            'no_impr_count':0,
+            '3loss': None,
+            'tot_ss': 0 if config.model.work.dynamic else config.model.work.sync_steps*config.model.epochs
+        }
+    else:
+        meta_config = {}
     update_steps = sel_dynamic_ls(config.model)
 
     postfix = {'Val_Acc': f'{val_acc:.2f}%', 'Best_Acc': f'{best_acc:.2f}%'}
@@ -180,12 +183,13 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
                 print(f"Early stopping triggered after {epoch + 1} epochs.")
                 break
 
-            if config.model.work.dynamic:
-                meta_config['epoch'] = epoch
-                update_steps(config.model, meta_config)
-                pbar.write(f'Epoch {meta_config['epoch']}: {meta_config['ls']}')
+            if config.model.num_workers > 0:
+                if config.model.work.dynamic:
+                    meta_config['epoch'] = epoch
+                    update_steps(config.model, meta_config)
+                    pbar.write(f'Epoch {meta_config['epoch']}: {meta_config['ls']}')
             
-            save_checkpoint(config,epoch, model, best_model, optimizer, scheduler, val_acc, best_acc)
+            save_checkpoint(config, epoch, model, best_model, optimizer, scheduler, val_acc, best_acc)
 
     plot_metrics("distributed" if config.model.num_workers > 0 else "centralized", config, train_losses, train_accuracies, val_losses, val_accuracies)
     return meta_config
