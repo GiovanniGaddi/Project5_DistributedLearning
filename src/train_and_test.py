@@ -15,7 +15,7 @@ from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_
 [ ] # Documentation
 [ ] # Comments
 [ ] # Finishing paper
-[ ] # Rum guide
+[ ] # Run guide
 
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
     running_loss = 0.0
