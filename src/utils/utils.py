@@ -47,7 +47,7 @@ def save_to_csv(config: Config, meta_config: dict, model_accuracy: float, best_m
         if file.tell() == 0:
             writer.writerow([
                 'Model Name', 'Epochs', 'Batch Size', 'Learning Rate', 'Loss', 'Optimizer', 
-                'Scheduler', 'Test', 'Warmup', 'Patience', 'Weight Decay','Pretrained',
+                'Scheduler', 'Test', 'Warmup', 'Patience', 'Weight Decay', 'Pretrained',
                 'Total Sync Steps','Work Sync Steps', 'Work Local Steps', 'Work Batch Size', 'Num Workers',
                 'Slowmo LR', 'SlowMo Momentum', 'Dynamic LS',
                 'Model Accuracy', 'Best Model Accuracy'
@@ -65,7 +65,7 @@ def save_to_csv(config: Config, meta_config: dict, model_accuracy: float, best_m
             config.model.num_workers,
             config.model.slowmo.learning_rate if config.model.slowmo else config.model.learning_rate,
             config.model.slowmo.momentum if config.model.slowmo else 0,
-            config.model.work.dynamic,
+            config.model.work.dynamic if config.model.work else False,
             model_accuracy,  # Pass model accuracy
             best_model_accuracy  # Pass best model accuracy
         ]
