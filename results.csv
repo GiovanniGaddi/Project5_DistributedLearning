@@ -7,3 +7,10 @@ LeNet,150,64,0.01,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,32,2,43.65,
 LeNet,150,64,0.02,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,32,2,45.96,46.73
 LeNet,150,64,0.01,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,32,2,43.14,44.11
 LeNet,150,64,0.02,CSE,SGDM,WarmUpPolynomialDecayLR,False,15,15,,88,4,32,2,46.65,45.7
+LeNet,150,64,0.01,CSE,SGDM,CosineAnnealingLR,False,15,15,0.0001,,2345.0,88,4,64,2,0.01,0,True,0.8,0.8
+LeNet,150,64,0.01,CSE,SGDM,CosineAnnealingLR,False,15,15,0.0001,,1479.0,88,4,64,2,0.01,0,True,0.95,0.95
+LeNet,150,64,0.01,CSE,SGDM,CosineAnnealingLR,False,15,15,0.0001,,2428.0,88,4,64,2,0.01,0,True,1.2,1.2
+LeNet,150,64,0.01,CSE,SGDM,CosineAnnealingLR,False,15,15,0.0001,,2428,88,4,64,2,0.01,0,True,1.22,1.22
+LeNet,150,64,0.01,CSE,SGDM,CosineAnnealingLR,False,15,15,0.0001,,2345,88,4,64,2,0.01,0,True,0.75,0.75
+LeNet,150,64,0.01,CSE,SGDM,CosineAnnealingLR,False,15,15,0.0001,,3246,88,4,64,2,0.01,0,True,0.81,0.81
+LeNet,150,64,0.01,CSE,SGDM,CosineAnnealingLR,False,15,15,0.0001,,4638,88,4,64,2,0.01,0,True,1.13,1.13

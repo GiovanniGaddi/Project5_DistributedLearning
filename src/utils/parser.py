@@ -37,10 +37,11 @@ class Parser():
         self.parser.add_argument('-wss', '--worker-sync-step', type=int, dest='WSS', help='Overload set workers Syncronised Steps')
         self.parser.add_argument('-wls', '--worker-local-step', type=int, dest='WLS', help='Overload set workers Local Steps')
         self.parser.add_argument('-wbs', '--worker-batch-size', type=int, dest='WBS', help='Overload set workers Batch Size')
-        
-        self.dynamic_steps = self.parser.add_mutually_exclusive_group()
-        self.dynamic_steps.add_argument('-edl', '--enable-dynamic-local-step', action='store_true', dest='DWLS', help='Set workers Dynamic Local Step')
-        self.dynamic_steps.add_argument('-ddl', '--disable-dynamic-local-step', action='store_false', dest='DWLS', help='Unset workers Dynamic Local Step')
+        self.parser.add_argument('-dls', '--dynamic-local-step', type=str, dest='DWLS', help='Overrides set dynamic local steps function')
+
+        # self.dynamic_steps = self.parser.add_mutually_exclusive_group()
+        # self.dynamic_steps.add_argument('-edl', '--enable-dynamic-local-step', action='store_true', dest='DWLS', help='Set workers Dynamic Local Step')
+        # self.dynamic_steps.add_argument('-ddl', '--disable-dynamic-local-step', action='store_false', dest='DWLS', help='Unset workers Dynamic Local Step')
         
 
         self.parser.add_argument('-P', '--pretrained', type=Path, dest='PRETRAINED', help='Path to the pretrained Model (Checkpoint)')

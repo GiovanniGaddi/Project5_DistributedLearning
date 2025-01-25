@@ -10,8 +10,7 @@ from utils.parser import Parser
 from utils.plot import plot_metrics
 from utils.utils import save_checkpoint, load_checkpoint, deepcopy_model, save_to_csv
 from utils.load_dataset import load_cifar100
-from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_scheduler
-
+from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_scheduler, sel_dynamic_ls
 
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
     running_loss = 0.0
@@ -53,6 +52,7 @@ def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
     
     with tqdm(range(meta_config['budget']), desc='Sync', position=0) as pbar_t:
         for t in pbar_t:
+            # workers step
             for worker_id in range(config.num_workers):
                 try:
                     inputs, labels = next(iters[worker_id])
@@ -90,7 +90,11 @@ def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
                     for param, slowmo_param in zip(model.parameters(), slowmo_buffer):
                         param.grad = slowmo_param.clone()
                         param.data -= alpha *model.learning_rate * param.grad
-            
+                
+                if t+meta_config['ls'] > meta_config['budget'] and t+1 != meta_config['budget']:
+                    pbar_t.close()
+                    break
+
     return losses, [100*correct/total for correct, total in zip(corrects, totals)]
 
 def defineTraining(config: ModelConfig) -> callable:
@@ -106,7 +110,6 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     train_accuracies = [[] for _ in range(config.model.num_workers if config.model.num_workers > 0 else 1)]
     val_losses = []
     val_accuracies = []
-    no_improvement_count = 0 
 
     if config.model.patience <= 0:
         patience = config.model.epochs
@@ -131,8 +134,11 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     meta_config= {
         'budget': max([len(loader) for loader in train_loader]),
         'ls': config.model.work.local_steps,
+        'no_impr_count':0,
+        '3loss': None,
         'tot_ss': 0 if config.model.work.dynamic else config.model.work.sync_steps*config.model.epochs
     }
+    update_steps = sel_dynamic_ls(config.model)
 
     postfix = {'Val_Acc': f'{val_acc:.2f}%', 'Best_Acc': f'{best_acc:.2f}%'}
     with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
@@ -155,49 +161,35 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
 
             val_losses.append(val_loss)
             val_accuracies.append(val_acc)
-
+            if config.model.work.dynamic and len(val_losses)> 2:
+                meta_config['3loss'] = val_losses[-3:] # TODO generalize history lenght
             # Save the model with the best accuracy on the validation set
             if val_acc > best_acc:
                 best_acc = val_acc
                 pbar.write(f"Saved new best model at epoch {epoch+1}")
                 best_model = deepcopy_model(model)
-                no_improvement_count = 0
+                meta_config['no_impr_count'] = 0
             else:
-                no_improvement_count += 1
+                meta_config['no_impr_count'] += 1
 
             postfix['Val_Acc'] = f'{val_acc:.2f}%'
             postfix['Best_Acc'] = f'{best_acc:.2f}%'
             pbar.set_postfix(postfix)
 
-            if no_improvement_count >= patience:
+            if meta_config['no_impr_count'] >= patience:
                 print(f"Early stopping triggered after {epoch + 1} epochs.")
                 break
 
             if config.model.work.dynamic:
-                update_steps(meta_config, val_losses)
+                meta_config['epoch'] = epoch
+                update_steps(config.model, meta_config)
+                pbar.write(f'Epoch {meta_config['epoch']}: {meta_config['ls']}')
             
             save_checkpoint(config,epoch, model, best_model, optimizer, scheduler, val_acc, best_acc)
 
     plot_metrics("distributed" if config.model.num_workers > 0 else "centralized", config, train_losses, train_accuracies, val_losses, val_accuracies)
     return meta_config
     
-    
-def update_steps(meta_config: dict, loss_history: list) -> None: 
-    # if at least 2 (could become an hyperparam) losses have been computed
-    if len(loss_history) > 2:
-        # if the loss has increased during the last 2 epochs
-        if loss_history[-1] > loss_history[-2] and loss_history[-2] > loss_history[-3]: #17m25s - 56.23 - 2 workers | 15m22s - 56.60 - 4 workers | 13m32s - 52.7 - 8 workers
-            # halve the local steps (min 4 bu could be as low as 1)
-            if meta_config['ls']> 4:    
-                meta_config['ls'] //= 2
-        # if the loss has decreased over the last 2 epochs
-        elif loss_history[-1] < loss_history[-2] and loss_history[-2] < loss_history[-3]:
-            # double the local steps (max 64 but could be higher)
-            if meta_config['ls'] < 64:
-                meta_config['ls'] *= 2
-        # adapt the synchronization steps to the new value
-        meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
-    return
 
 # Validation function
 def validate_model(val_loader: DataLoader, criterion, model: torch.nn.Module) -> tuple[float,float]:

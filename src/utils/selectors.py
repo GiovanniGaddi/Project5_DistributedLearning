@@ -85,3 +85,63 @@ def sel_scheduler(config:ModelConfig, optimizer: torch.optim.Optimizer, len_trai
     else:
         raise ValueError(f"Unsupported scheduler: {config.scheduler}")
     return scheduler
+
+
+
+def asc_linear_ls(config: ModelConfig, meta_config: dict)-> None:
+    meta_config['ls'] = (int(meta_config['epoch']/(config.epochs-1)*120+1)//2 + 4)
+    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+
+def desc_linear_ls(config: ModelConfig, meta_config: dict)-> None:
+    meta_config['ls'] = int(((1.0-meta_config['epoch']/(config.epochs-1))*120+1)//2 + 4)
+    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+
+def asc_binary_ls(config: ModelConfig, meta_config: dict)-> None:
+    power2 = (int(meta_config['epoch']/(config.epochs-1)*8+1)//2 + 2)
+    meta_config['ls'] = 2**power2
+    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+
+def desc_binary_ls(config: ModelConfig, meta_config: dict)-> None:
+    power2 = int(((1.0-meta_config['epoch']/(config.epochs-1))*8+1)//2 + 2)
+    meta_config['ls'] = 2**power2
+    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+
+def improvement_ls(config: ModelConfig, meta_config: dict) -> None:
+    if meta_config['no_impr_count'] > 4:
+        if meta_config['ls']> 4:    
+                meta_config['ls'] //= 2
+    elif meta_config['no_impr_count'] < 2:
+        if meta_config['ls'] < 64:
+            meta_config['ls'] *= 2
+
+def loss_ls(config: ModelConfig, meta_config: dict,) -> None: 
+    # if at least 2 (could become an hyperparam) losses have been computed
+    if meta_config['3loss']:
+        # if the loss has increased during the last 2 epochs
+        if meta_config['3loss'][-1] > meta_config['3loss'][-2] and meta_config['3loss'][-2] > meta_config['3loss'][-3]: #17m25s - 56.23 - 2 workers | 15m22s - 56.60 - 4 workers | 13m32s - 52.7 - 8 workers
+            # halve the local steps (min 4 bu could be as low as 1)
+            if meta_config['ls']> 4:    
+                meta_config['ls'] //= 2
+        # if the loss has decreased over the last 2 epochs
+        elif meta_config['3loss'][-1] < meta_config['3loss'][-2] and meta_config['3loss'][-2] < meta_config['3loss'][-3]:
+            # double the local steps (max 64 but could be higher)
+            if meta_config['ls'] < 64:
+                meta_config['ls'] *= 2
+        # adapt the synchronization steps to the new value
+        meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+
+def sel_dynamic_ls(config: ModelConfig)-> callable:
+    if config.work.dynamic == 'LossLS':
+        return loss_ls
+    elif config.work.dynamic == 'ImprLS':
+        return improvement_ls
+    elif config.work.dynamic == 'ALin':
+        return asc_linear_ls
+    elif config.work.dynamic == 'DLin':
+        return desc_linear_ls
+    elif config.work.dynamic == 'ABin':
+        return asc_binary_ls
+    elif config.work.dynamic == 'Dlin':
+        return desc_binary_ls
+    else:
+        raise ValueError(f"Unsupported scheduler: {config.work.dynamic}")
