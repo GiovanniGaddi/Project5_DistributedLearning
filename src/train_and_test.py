@@ -12,6 +12,11 @@ from utils.utils import save_checkpoint, load_checkpoint, deepcopy_model, save_t
 from utils.load_dataset import load_cifar100
 from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_scheduler, sel_dynamic_ls
 
+[ ] # Documentation
+[ ] # Comments
+[ ] # Finishing paper
+[ ] # Rum guide
+
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
     running_loss = 0.0
     correct = 0
@@ -74,7 +79,7 @@ def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
                 totals[worker_id] += labels.size(0)
                 corrects[worker_id] += (predicted == labels).sum().item()
 
-                pbar.write(f"Work{worker_id+1:02} Loss: {loss}")
+                #pbar.write(f"Work{worker_id+1:02} Loss: {loss}")
             
             # syncronization
             if (t+1)% meta_config['ls'] == 0:
@@ -95,7 +100,7 @@ def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
                     pbar_t.close()
                     break
 
-    return losses, [100*correct/total for correct, total in zip(corrects, totals)]
+    return losses, [100*correct/total for correct, total in zip(corrects, totals)], avg_params, list_params
 
 def defineTraining(config: ModelConfig) -> callable:
     if config.num_workers > 0:
@@ -144,10 +149,11 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
         for epoch in pbar:
             model.learning_rate = scheduler.get_last_lr()[0]
+            print(model.learning_rate)
             model.train()
 
             #Training phase
-            epoch_loss, epoch_acc = train_func(config.model, meta_config, model, train_loader, optimizer, criterion, device, pbar)
+            epoch_loss, epoch_acc, avg_params, list_params = train_func(config.model, meta_config, model, train_loader, optimizer, criterion, device, pbar)
 
             for train_loss, ep_loss in zip(train_losses, epoch_loss):
                 train_loss.append(ep_loss)
@@ -163,6 +169,9 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
             val_accuracies.append(val_acc)
             if config.model.work.dynamic and len(val_losses)> 2:
                 meta_config['3loss'] = val_losses[-3:] # TODO generalize history lenght
+            if config.model.work.dynamic == 'AvgParamDev':
+                meta_config['avg_params'] = avg_params
+                meta_config['list_params'] = list_params
             # Save the model with the best accuracy on the validation set
             if val_acc > best_acc:
                 best_acc = val_acc
@@ -258,3 +267,4 @@ if __name__ == '__main__':
     best_model_acc = evaluate_model(config.model,test_data, best_model)
     print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
     save_to_csv(config, meta_config, model_acc, best_model_acc)
+    print(meta_config['tot_ss'])

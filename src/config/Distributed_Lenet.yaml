@@ -1,19 +1,20 @@
 model:
   name: LeNet
-  epochs: 150
+  epochs: 4
   batch_size: 64
-  learning_rate: 1e-2
+  learning_rate: 2e-2
   loss: CSE
   optimizer: SGDM
   scheduler: CosineAnnealingLR
   test: False
-  warmup: 15
-  patience: 15
-  weight_decay: 1e-4
+  warmup: 0
+  patience: 150
+  weight_decay: 1e-3
   work: 
     sync_steps: 88
     local_steps: 4
     batch_size: 64
+    dynamic: AvgParamDev
   num_workers: 2
 experiment:
   name: train_lenet_cifar100

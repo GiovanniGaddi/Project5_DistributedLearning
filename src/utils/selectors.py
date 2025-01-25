@@ -1,6 +1,7 @@
 import torch
 import torch.optim as optim
 from torch.nn import CrossEntropyLoss
+import math
 from models.lenet5 import leNet5
 from utils.optim import LAMB, LARS
 from utils.conf import ModelConfig
@@ -48,45 +49,42 @@ def sel_scheduler(config:ModelConfig, optimizer: torch.optim.Optimizer, len_trai
     total_epochs = config.epochs
     warmup_iters = warmup_epochs * len_train_data
 
+    # Main selection
     if config.scheduler == 'CosineAnnealingLR':
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=config.epochs, eta_min=0
-        )
-    elif config.scheduler == 'WarmUpCosineAnnealingLR':
-        # Warmup scheduler 
-        warmup_scheduler = optim.lr_scheduler.LinearLR(
-            optimizer, start_factor=0.1, total_iters=warmup_iters
-        )
-        # Cosine Annealing Scheduler 
-        cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=total_epochs - warmup_epochs, eta_min=0
         )
-        # combination
-        scheduler = optim.lr_scheduler.SequentialLR(
-            optimizer, schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_iters]
-        )
-    elif config.scheduler == 'WarmUpPolynomialDecayLR':
-        # Warmup scheduler
-        warmup_scheduler = optim.lr_scheduler.LinearLR(
-            optimizer, start_factor=0.1, total_iters=warmup_iters
-        )
-        # Polynomial Decay Scheduler
-        polynomial_scheduler = optim.lr_scheduler.LambdaLR(
-            optimizer,
-            lr_lambda=lambda step: (
-                (1 - (step - warmup_iters) / (total_epochs * len_train_data - warmup_iters)) ** 2
-            ) if step >= warmup_iters else 1.0
-        )
-        scheduler = optim.lr_scheduler.SequentialLR(
-            optimizer, schedulers=[warmup_scheduler, polynomial_scheduler],
-            milestones=[warmup_iters]
+    elif config.scheduler == 'PolynomialDecayLR':
+        main_scheduler = optim.lr_scheduler.PolynomialLR(
+            optimizer, total_iters=total_epochs * len_train_data, power=2.0
         )
     else:
         raise ValueError(f"Unsupported scheduler: {config.scheduler}")
+
+    # Full
+    warmup_scheduler = create_warmup_scheduler(optimizer, 0.1, warmup_epochs, warmup_iters)
+
+    if warmup_scheduler:
+        scheduler = optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, main_scheduler],
+            milestones=[warmup_epochs]
+        )
+    else:
+        scheduler = main_scheduler
+    print(scheduler)
     return scheduler
 
 
+def create_warmup_scheduler(optimizer: torch.optim.Optimizer, start: float, warmup_epochs: int, warmup_iters: int):
+    if warmup_epochs > 0:
+        return optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=start, total_iters=warmup_epochs
+        )
+    return None
+
+
+# Methods for dynamic local steps scheduling
 
 def asc_linear_ls(config: ModelConfig, meta_config: dict)-> None:
     meta_config['ls'] = (int(meta_config['epoch']/(config.epochs-1)*120+1)//2 + 4)
@@ -119,7 +117,7 @@ def loss_ls(config: ModelConfig, meta_config: dict,) -> None:
     if meta_config['3loss']:
         # if the loss has increased during the last 2 epochs
         if meta_config['3loss'][-1] > meta_config['3loss'][-2] and meta_config['3loss'][-2] > meta_config['3loss'][-3]: #17m25s - 56.23 - 2 workers | 15m22s - 56.60 - 4 workers | 13m32s - 52.7 - 8 workers
-            # halve the local steps (min 4 bu could be as low as 1)
+            # half the local steps (min 4 bu could be as low as 1)
             if meta_config['ls']> 4:    
                 meta_config['ls'] //= 2
         # if the loss has decreased over the last 2 epochs
@@ -130,9 +128,110 @@ def loss_ls(config: ModelConfig, meta_config: dict,) -> None:
         # adapt the synchronization steps to the new value
         meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
 
+def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75, steepness: float = 0.5)-> None:
+    """
+    Compute the number of local steps (H) to take using a sigmoid function.
+    
+    Args:
+        midpoint (float): The epoch at which the transition occurs most rapidly.
+        steepness (float): Controls how sharp the transition is.
+    """
+    total_steps = meta_config['budget']
+    epoch = meta_config['epoch']
+    H_max = total_steps/2
+    H_min = total_steps/22 #might be a parameter
+
+    # Sigmoid function for smooth transition
+    sigmoid_value = 1 / (1 + math.exp(-steepness * (epoch - midpoint)))
+    H = H_min + (H_max - H_min) * sigmoid_value
+    H = max(H_min, min(H_max, round(H)))  # Clamp H within bounds
+
+    # Compute synchronization steps
+    sync_steps = total_steps // H
+    remainder = total_steps % H
+
+    if remainder > 0 and (remainder / total_steps) <= 0.05:
+        sync_steps += 1
+        H = math.ceil(total_steps / sync_steps)
+    else:
+        H = math.floor(total_steps / sync_steps)
+
+    meta_config['ls'] = H
+    meta_config['ss'] = sync_steps
+    meta_config['tot_ss'] += sync_steps
+
+
+def reverse_cosine_annealing_ls(config: ModelConfig, meta_config: dict)-> None: 
+    """Compute the inverted Cosine Annealing value for H with exact total_steps."""
+    total_steps = meta_config['budget']
+    t = meta_config['epoch']
+    T = config.epochs
+    H_max = total_steps/2
+    H_min = total_steps/22 #might be a parameter
+
+    H = H_max - (H_max - H_min) / 2 * (1 + math.cos(math.pi * t / T))
+    H = max(H_min, min(H_max, round(H)))  
+
+    sync_steps = total_steps // H
+    remainder = total_steps % H
+
+    if remainder > 0 and (remainder / total_steps) <= 0.05:
+        sync_steps += 1
+        H = math.ceil(total_steps / sync_steps)
+    else:
+        H = math.floor(total_steps / sync_steps)
+
+    meta_config['ls'] = H
+    meta_config['ss'] = sync_steps
+    meta_config['tot_ss'] += sync_steps
+
+def avg_param_dev_ls(config: ModelConfig, meta_config: dict, threshold=0.5): #threshold to be determined
+    """
+    Update sync steps (T) and local steps (H) based on avg params deviation 
+
+    Args:
+        threshold: to decide whether to update
+    """
+    K = config.num_workers
+    H = config.work.local_steps
+    total_steps = meta_config['budget']
+    T = total_steps/H
+
+    num_params = len(meta_config['avg_params'])
+    total_deviation = 0.0
+
+    # Compute deviation w.r.t. average pparams
+    for k in range(K):
+        worker_deviation = 0.0
+        for param_grad, avg_grad in zip(meta_config['list_params'][k], meta_config['avg_params']):
+            worker_deviation += torch.norm(param_grad - avg_grad).item()  # applying norm
+        total_deviation += worker_deviation / num_params
+
+    avg_deviation = total_deviation / K
+
+    print(avg_deviation)
+
+    # Updates based on avg dev
+    if avg_deviation < threshold:  # if gradient is steady, increase H
+        H = min(H * 2, total_steps//2)  # double H
+        T = max(2, total_steps//H)  # update T to keep total_steps constant
+    elif avg_deviation > threshold*2:  # otherwise reduce H (so more sync)
+        H = max(4, H // 2)  # half H
+        T = max(4, total_steps // H)  # update T to keep total_steps constant
+
+    meta_config['ls'] = H
+    meta_config['ss'] = T
+    meta_config['tot_ss'] += T
+
 def sel_dynamic_ls(config: ModelConfig)-> callable:
     if config.work.dynamic == 'LossLS':
         return loss_ls
+    elif config.work.dynamic == 'RevCosAnn':
+        return reverse_cosine_annealing_ls
+    elif config.work.dynamic == 'Sigmoid':
+        return sigmoid_based_ls
+    elif config.work.dynamic == 'AvgParamDev':
+        return avg_param_dev_ls
     elif config.work.dynamic == 'ImprLS':
         return improvement_ls
     elif config.work.dynamic == 'ALin':
@@ -144,4 +243,4 @@ def sel_dynamic_ls(config: ModelConfig)-> callable:
     elif config.work.dynamic == 'Dlin':
         return desc_binary_ls
     else:
-        raise ValueError(f"Unsupported scheduler: {config.work.dynamic}")
+        raise ValueError(f"Unsupported local steps scheduler: {config.work.dynamic}")
