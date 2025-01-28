@@ -171,7 +171,9 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
             val_losses.append(val_loss)
             val_accuracies.append(val_acc)
             if config.model.work.dynamic and len(val_losses)> 2:
-                meta_config['3loss'] = val_losses[-3:] # TODO generalize history lenght
+                meta_config['3loss'] = val_losses[-3:]
+            if config.model.work.dynamic and len(val_losses)> 10:
+                meta_config['10loss'] = val_losses[-10:] # TODO generalize history lenght
             if config.model.work.dynamic == 'AvgParamDev':
                 meta_config['avg_params'] = avg_params
                 meta_config['list_params'] = list_params
