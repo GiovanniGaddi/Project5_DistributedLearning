@@ -3,11 +3,15 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 
+class DynamicConfig(BaseModel):
+    strategy: str
+    n_losses: int
+
 class WorkerConfig(BaseModel):
     sync_steps: int
     local_steps: int
     batch_size: int
-    dynamic: Optional[str] = None
+    dynamic: Optional[DynamicConfig] = None
 
 class SlowMOConfig(BaseModel):
     learning_rate: float
@@ -22,7 +26,7 @@ class ModelConfig(BaseModel):
     optimizer: str
     scheduler: str
     weight_decay: float
-    slowmo:Optional[SlowMOConfig] = None
+    slowmo: Optional[SlowMOConfig] = None
     test: Optional[bool] = False
     warmup: Optional[int] = None
     patience: Optional[int] = None
