@@ -35,7 +35,7 @@ The repository is organized as follows:
 ├── src/                                     Main source code folder
 │   ├── train_and_test.py                    Main script for training and testing the model
 │   ├── config/                              Configuration folder
-│   │   └── Distributed_Lenet.yaml            Example of configuration file (YAML format)
+│   │   └── Distributed_Lenet.yaml           Example of configuration file (YAML format)
 │   ├── model/                               Folder containing model-related files
 │   │   └── lenet5.py                        LeNet-5 model architecture definition
 │   └── utils/                               Utility scripts and helper functions
