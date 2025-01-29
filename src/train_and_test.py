@@ -12,26 +12,26 @@ from utils.utils import save_checkpoint, load_checkpoint, deepcopy_model, save_t
 from utils.load_dataset import load_cifar100
 from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_scheduler, sel_dynamic_ls
 
-[ ] # Documentation
-[ ] # Comments
-[ ] # Finishing paper
-[ ] # Run guide
+# [ ] # Documentation
+# [ ] # Comments
+# [ ] # Finishing paper
+# [ ] # Run guide
 
-[x] # Graph best cases (Silvano)
-[x] # Local Steps Graph (Grasso che cola ma mezza fatta, Silvano)
-[ ] # Graph centralized (Gio)
-[ ] # Add linear Experiments (Gio)
-[ ] # Slowmo beta (Silvano)
-[ ] # Tabelle Results (Silvano, Nicolò)
-[ ] # Check save/load checkpoint (Gio)
-[ ] # Check pretrained (Gio)
-[ ] # Check only-Test (Gio)
-[ ] # Skip fix (Gio)
-[ ] # Parser (Gio)
-[ ] # ReadME (Nicolò)
-[ ] # Commenti
-[ ] # Public the github
-[ ] # Final check
+# [x] # Graph best cases (Silvano)
+# [x] # Local Steps Graph (Grasso che cola ma mezza fatta, Silvano)
+# [ ] # Graph centralized (Gio)
+# [ ] # Add linear Experiments (Gio)
+# [ ] # Slowmo beta (Silvano)
+# [ ] # Tabelle Results (Silvano, Nicolò)
+# [ ] # Check save/load checkpoint (Gio)
+# [ ] # Check pretrained (Gio)
+# [ ] # Check only-Test (Gio)
+# [ ] # Skip fix (Gio)
+# [ ] # Parser (Gio)
+# [ ] # ReadME (Nicolò)
+# [ ] # Commenti
+# [ ] # Public the github
+# [ ] # Final check
 
 
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
