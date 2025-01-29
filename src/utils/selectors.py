@@ -56,7 +56,7 @@ def sel_scheduler(config:ModelConfig, optimizer: torch.optim.Optimizer, len_trai
         )
     elif config.scheduler == 'PolynomialDecayLR':
         main_scheduler = optim.lr_scheduler.PolynomialLR(
-            optimizer, total_iters=total_epochs * len_train_data, power=2.0
+            optimizer, total_iters=total_epochs - warmup_epochs, power=2.0
         )
     else:
         raise ValueError(f"Unsupported scheduler: {config.scheduler}")
@@ -133,6 +133,8 @@ def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75,
     Compute the number of local steps (H) to take using a sigmoid function.
     
     Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
         midpoint (float): The epoch at which the transition occurs most rapidly.
         steepness (float): Controls how sharp the transition is.
     """
@@ -144,25 +146,32 @@ def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75,
     # Sigmoid function for smooth transition
     sigmoid_value = 1 / (1 + math.exp(-steepness * (epoch - midpoint)))
     H = H_min + (H_max - H_min) * sigmoid_value
-    H = max(H_min, min(H_max, round(H)))  # Clamp H within bounds
+    H = max(H_min, min(H_max, round(H)))  # Rounding H
 
     # Compute synchronization steps
     sync_steps = total_steps // H
     remainder = total_steps % H
 
+    # 5% tolerance
     if remainder > 0 and (remainder / total_steps) <= 0.05:
         sync_steps += 1
         H = math.ceil(total_steps / sync_steps)
     else:
         H = math.floor(total_steps / sync_steps)
 
+    # update values
     meta_config['ls'] = H
     meta_config['ss'] = sync_steps
     meta_config['tot_ss'] += sync_steps
 
 
 def reverse_cosine_annealing_ls(config: ModelConfig, meta_config: dict)-> None: 
-    """Compute the inverted Cosine Annealing value for H with exact total_steps."""
+    """Compute the inverted Cosine Annealing value for H with exact total_steps.
+    
+    Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
+    """
     total_steps = meta_config['budget']
     t = meta_config['epoch']
     T = config.epochs
@@ -175,12 +184,14 @@ def reverse_cosine_annealing_ls(config: ModelConfig, meta_config: dict)-> None:
     sync_steps = total_steps // H
     remainder = total_steps % H
 
+    # 5% tolerance
     if remainder > 0 and (remainder / total_steps) <= 0.05:
         sync_steps += 1
         H = math.ceil(total_steps / sync_steps)
     else:
         H = math.floor(total_steps / sync_steps)
 
+    # update values
     meta_config['ls'] = H
     meta_config['ss'] = sync_steps
     meta_config['tot_ss'] += sync_steps
@@ -190,6 +201,8 @@ def avg_param_dev_ls(config: ModelConfig, meta_config: dict, threshold=0.5): #th
     Update sync steps (T) and local steps (H) based on avg params deviation 
 
     Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
         threshold: to decide whether to update
     """
     K = config.num_workers
@@ -219,6 +232,7 @@ def avg_param_dev_ls(config: ModelConfig, meta_config: dict, threshold=0.5): #th
         H = max(4, H // 2)  # half H
         T = max(4, total_steps // H)  # update T to keep total_steps constant
 
+    # update values in meta config
     meta_config['ls'] = H
     meta_config['ss'] = T
     meta_config['tot_ss'] += T

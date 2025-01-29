@@ -18,6 +18,25 @@ from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_
 [ ] # Run guide
 
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
+    """
+    Performs centralized training using a single training DataLoader.
+
+    Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
+        model (torch.nn.Module): The model to be trained.
+        train_loader (list[DataLoader]): A list containing DataLoaders, with the first (and only) DataLoader used for training
+        optimizer (torch.optim.Optimizer): The optimizer used for updating model weights.
+        criterion: The function used to compute the loss.
+        device (str): The device to run the computations on (e.g., 'cpu' or 'cuda').
+        pbar (tqdm): A progress bar instance for tracking training progress (not used at the moment)
+
+    Returns:
+        tuple[list[float], list[float]]: A tuple containing:
+            - A list containing the average training loss for the epoch.
+            - A list containing the training accuracy as a percentage.
+    """
+    
     running_loss = 0.0
     correct = 0
     total = 0
@@ -42,7 +61,28 @@ def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module,
         correct += (predicted == labels).sum().item()
     return [running_loss], [100 * correct/total]
 
-def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, training_data_splits: DataLoader, optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
+def local(config: ModelConfig, meta_config: dict, model: torch.nn.Module, training_data_splits: DataLoader, optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
+    """
+    Performs local Stochastic Gradient Descent (SGD) with momentum across multiple workers with optional SlowMo synchronization.
+
+    Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
+        model (torch.nn.Module): The model to be trained.
+        training_data_splits (DataLoader): A list of DataLoaders for each worker.
+        optimizer (torch.optim.Optimizer): The optimizer used for updating model weights (unused here, since we have local methods)
+        criterion: The loss function used to compute the training loss.
+        device (str): The device to run the computations on (e.g., 'cpu' or 'cuda').
+        pbar (tqdm): A progress bar instance for tracking training progress.
+
+    Returns:
+        tuple[list[float], list[float], list[torch.Tensor], list[list[torch.Tensor]]]: A tuple containing:
+            - A list of training losses for each worker.
+            - A list of training accuracies for each worker as a percentage.
+            - A list of averaged parameters across workers.
+            - A nested list of model parameters for each worker.
+    """
+    
     losses = [0]*config.num_workers
     totals = [0]*config.num_workers
     corrects = [0]*config.num_workers
@@ -102,9 +142,11 @@ def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
 
     return losses, [100*correct/total for correct, total in zip(corrects, totals)], avg_params, list_params
 
+
+# Function to define the training method
 def defineTraining(config: ModelConfig) -> callable:
     if config.num_workers > 0:
-        return localSDG
+        return local
     else:
         return centralized
 
@@ -121,13 +163,12 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     else:
         patience = config.model.patience
 
-    
-
     #load values form checkpoint
     val_acc = 0.0 if checkpoint is None else checkpoint['val_acc']
     best_acc = 0.0 if checkpoint is None else checkpoint['best_acc']
     start_epoch = 0 if checkpoint is None else checkpoint['start_epoch']
 
+    # Setup for data loaders based on the number of workers
     if config.model.num_workers > 0:
         train_loader = [DataLoader(data, batch_size=config.model.work.batch_size, shuffle=True, drop_last=False) for data in train_data]
     else:
@@ -136,6 +177,7 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
 
     train_func = defineTraining(config.model)
 
+    # update meta_config accordingly, setting values such as budget, local steps, total syncs
     if config.model.num_workers > 0:
         meta_config= {
             'budget': max([len(loader) for loader in train_loader]),
@@ -148,6 +190,7 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
         meta_config = {}
     update_steps = sel_dynamic_ls(config.model)
 
+    # training loop
     postfix = {'Val_Acc': f'{val_acc:.2f}%', 'Best_Acc': f'{best_acc:.2f}%'}
     with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
         for epoch in pbar:
@@ -170,6 +213,8 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
 
             val_losses.append(val_loss)
             val_accuracies.append(val_acc)
+
+            # update meta_config according to the dynamic local step adjustment method
             if config.model.work.dynamic and len(val_losses)> 2:
                 meta_config['3loss'] = val_losses[-3:]
             if config.model.work.dynamic and len(val_losses)> 10:
@@ -190,10 +235,12 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
             postfix['Best_Acc'] = f'{best_acc:.2f}%'
             pbar.set_postfix(postfix)
 
+            #if early stopping is set
             if meta_config['no_impr_count'] >= patience:
                 print(f"Early stopping triggered after {epoch + 1} epochs.")
                 break
 
+            # print local steps for current epoch
             if config.model.num_workers > 0:
                 if config.model.work.dynamic:
                     meta_config['epoch'] = epoch
@@ -250,12 +297,15 @@ def evaluate_model(config: ModelConfig, test_data: torchvision.datasets, model: 
 if __name__ == '__main__':
     script_dir = Path(__file__).parent
 
+    # setup for config and parser
     yaml_path = script_dir / 'config' / 'Distributed_Lenet.yaml'    
     parser = Parser(yaml_path)
     config, device = parser.parse_args()
 
+    # load dataset
     train_data, val_data, test_data = load_cifar100(config.model)
 
+    # all the selectors
     model = sel_model(config.model)
     device = sel_device(device)
     model = model.to(device)
@@ -267,10 +317,14 @@ if __name__ == '__main__':
     if config.experiment.resume:     
         checkpoint = load_checkpoint(config, model, best_model, optimizer, scheduler)
     
+    # call functions for train and test (bpth last and best validation accuracy)
     meta_config = train_model(config, train_data, val_data, model, best_model, device, optimizer, scheduler, loss_function, checkpoint)
+
     model_acc = evaluate_model(config.model,test_data, model)
     print(f'Model Test Accuracy: {model_acc:.2f}%')
+
     best_model_acc = evaluate_model(config.model,test_data, best_model)
     print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
+
     save_to_csv(config, meta_config, model_acc, best_model_acc)
     print(meta_config['tot_ss'])
