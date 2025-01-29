@@ -237,7 +237,7 @@ def avg_param_dev_ls(config: ModelConfig, meta_config: dict, threshold=0.5): #th
     meta_config['ss'] = T
     meta_config['tot_ss'] += T
 
-def avg_loss_ls(config: ModelConfig, meta_config: dict) -> None
+def avg_loss_ls(config: ModelConfig, meta_config: dict) -> None:
     if len(meta_config['10loss']) >= 10: #16m03s - 57.19 - 2 workers | 13m40s - 56.50 - 4 workers | 14m58s / 13m14s - 52.34 / 52.25 - 8 workers 
         # compute last 5 epochs average loss
         new_avg = sum(meta_config['10loss'][-5:])/len(meta_config['10loss'][-5:])
