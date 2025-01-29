@@ -169,7 +169,8 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
             'loss_history': None,
             'tot_ss': 0 if config.model.work.dynamic else config.model.work.sync_steps*config.model.epochs
         }
-        update_steps = sel_dynamic_ls(config.model)
+        if config.model.work.dynamic:
+            update_steps = sel_dynamic_ls(config.model)
     else:
         meta_config = {}
 
