@@ -32,27 +32,27 @@ The repository is organized as follows:
 ```
 ./
 │
-├── src/                        # Main source code folder
-│   ├── train_and_test.py        # Main script for training and testing the model
-│   ├── config/                  # Configuration folder
-│   │   └── Distributed_Lenet.yaml          # Example of configuration file (YAML format)
-│   ├── model/                   # Folder containing model-related files
-│   │   └── lenet5.py            # LeNet-5 model architecture definition
-│   └── utils/                   # Utility scripts and helper functions
-│       ├── conf.py              # Configuration settings
-│       ├── parser.py            # Argument parsing utility
-│       ├── load_dataset.py      # Dataset loading and preprocessing
-│       ├── optim.py             # Custom optimizers 
-│       ├── plot.py              # Plotting and visualization functions
-│       ├── selectors.py         # Utility to select optimizers, schedulers, etc
-│       └── utils.py             # General utility functions, such as saving results, checkpoints, etc
+├── src/                                     Main source code folder
+│   ├── train_and_test.py                    Main script for training and testing the model
+│   ├── config/                              Configuration folder
+│   │   └── Distributed_Lenet.yaml            Example of configuration file (YAML format)
+│   ├── model/                               Folder containing model-related files
+│   │   └── lenet5.py                        LeNet-5 model architecture definition
+│   └── utils/                               Utility scripts and helper functions
+│       ├── conf.py                          Configuration settings
+│       ├── parser.py                        Argument parsing utility
+│       ├── load_dataset.py                  Dataset loading and preprocessing
+│       ├── optim.py                         Custom optimizers 
+│       ├── plot.py                          Plotting and visualization functions
+│       ├── selectors.py                     Utility to select optimizers, schedulers, etc
+│       └── utils.py                         General utility functions, such as saving results, checkpoints, etc
 │
-├── checkpoints/                 # Folder for saving model checkpoints
-│   └── model_checkpoint.pth     # Example of saved model checkpoint
+├── checkpoints/                             Folder for saving model checkpoints
+│   └── model_checkpoint.pth                 Example of saved model checkpoint
 │
-├── requirements.txt             # List of project dependencies (Python libraries)
-├── README.md                    # Project documentation (you are here)
-└── RUN_GUIDE.md                 # Run guide for executing the project
+├── requirements.txt                         List of project dependencies (Python libraries)
+├── README.md                                Project documentation (you are here)
+└── RUN_GUIDE.md                             Run guide for executing the project
 
 ```
 
