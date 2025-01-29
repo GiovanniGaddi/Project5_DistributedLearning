@@ -65,11 +65,6 @@ class Parser():
         self.parser.add_argument('-dls', '--dynamic-strategy', type=str, dest='DWLS', choices= self.valid_dynamic.keys(), help='Overrides set dynamic local steps function. Valid choices:\n' + '\n'.join([f'{opt}: {desc}' for opt, desc in self.valid_dynamic.items()]))
         self.parser.add_argument('-dnl', '--dynamic-num-loss', type=int, dest='DNL', help='Overrides set number of losses used for dynamic local steps function')
 
-        # self.dynamic_steps = self.parser.add_mutually_exclusive_group()
-        # self.dynamic_steps.add_argument('-edl', '--enable-dynamic-local-step', action='store_true', dest='DWLS', help='Set workers Dynamic Local Step')
-        # self.dynamic_steps.add_argument('-ddl', '--disable-dynamic-local-step', action='store_false', dest='DWLS', help='Unset workers Dynamic Local Step')
-        
-
         self.parser.add_argument('-P', '--pretrained', type=Path, dest='PRETRAINED', help='Path to the pretrained Model (Checkpoint)')
         self.parser.add_argument('-LC', '--load-checkpoint', action='store_true', dest='CHECKPOINT', help='Resume previous experiment')
         self.parser.add_argument('-TO', '--test-only', action='store_true', dest='TEST_F', help='Skip Training and do only Test')
@@ -85,6 +80,7 @@ class Parser():
 
         device = 'cpu' if self.args.CPU_F else 'gpu'
 
+        #load yaml file to the configuration
         with open(self.args.CONFIG) as file:
             d = yaml.safe_load(file)
             config = Config(**d)
@@ -113,6 +109,7 @@ class Parser():
         if self.args.WD is not None:
             config.model.weight_decay = self.args.WD
 
+        #optional Configuration in case of settes SlowMo
         if config.model.slowmo is not None:
 
             if self.args.SM is not None:
@@ -124,6 +121,7 @@ class Parser():
         if self.args.NW is not None:
                 config.model.num_workers = self.args.NW
 
+        #optional Configuration in case of distributed training
         if config.model.num_workers > 0:
 
             if self.args.WSS is not None:
@@ -135,8 +133,6 @@ class Parser():
             if self.args.WBS is not None:
                 config.model.work.batch_size = self.args.WBS
             
-            # if self.args.DWLS is not None:
-            #     config.model.work.dynamic = self.args.DWLS
             if config.model.work.dynamic is not None:
                 if self.args.DWLS is not None:
                     config.model.work.dynamic.strategy = self.args.DWLS
@@ -173,6 +169,7 @@ class Parser():
         if self.args.OUTPUT is not None:
             config.experiment.output = self.args.OUTPUT
         
+        # Set checkpoint directory based on the experiment Name
         config.experiment.checkpoint_dir = os.path.join(config.experiment.checkpoint_dir,config.experiment.name)
         os.makedirs(config.experiment.checkpoint_dir, exist_ok=True)
 

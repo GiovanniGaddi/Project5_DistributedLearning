@@ -8,9 +8,10 @@ from utils.conf import ModelConfig
 
 def sel_model(config: ModelConfig) -> torch.nn.Module:
     assert config.name, "Model not selected"
-    # Define a LeNet-5 model
     if config.name == 'LeNet':
         model = leNet5(config.learning_rate)
+    else:
+        raise ValueError(f"Unsupported model: {config.name}")
     return model
 
 def sel_device(device: str) -> str:
@@ -23,15 +24,14 @@ def sel_device(device: str) -> str:
     
 def sel_optimizer(config:ModelConfig, model: torch.nn.Module)-> torch.optim.Optimizer:
     assert config.optimizer, "Optimizer not selected"
-    weight_decay = config.weight_decay
     if config.optimizer == 'AdamW':
-        optimizer = optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=weight_decay)
+        optimizer = optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
     elif config.optimizer == "SGDM":
-        optimizer = optim.SGD(model.parameters(), lr=config.learning_rate, momentum=0.9, weight_decay=weight_decay)
+        optimizer = optim.SGD(model.parameters(), lr=config.learning_rate, momentum=0.9, weight_decay=config.weight_decay)
     elif config.optimizer == "LARS":
-        optimizer = LARS(model.parameters(), lr=config.learning_rate, momentum=0.9, weight_decay=weight_decay)
+        optimizer = LARS(model.parameters(), lr=config.learning_rate, momentum=0.9, weight_decay=config.weight_decay)
     elif config.optimizer == "LAMB":
-        optimizer = LAMB(model.parameters(), lr=config.learning_rate, weight_decay=weight_decay)
+        optimizer = LAMB(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
     else:
         raise ValueError(f"Unsupported optimizer: {config.optimizer}")
     return optimizer
@@ -40,35 +40,35 @@ def sel_loss(config: ModelConfig):
     assert config.loss, "Loss not selected"
     if config.loss == 'CSE':
         criterion = CrossEntropyLoss()
+    else: 
+        raise ValueError(f"Unsupported Loss Function: {config.loss}")
     return criterion
 
 def sel_scheduler(config:ModelConfig, optimizer: torch.optim.Optimizer, len_train_data: int)-> torch.optim.lr_scheduler._LRScheduler:
     assert config.scheduler, "Scheduler not selected"
 
-    warmup_epochs = config.warmup
-    total_epochs = config.epochs
-    warmup_iters = warmup_epochs * len_train_data
+    warmup_iters = config.warmup * len_train_data
 
     # Main selection
     if config.scheduler == 'CosineAnnealingLR':
         main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=total_epochs - warmup_epochs, eta_min=0
+            optimizer, T_max=config.epochs - config.warmup, eta_min=0
         )
     elif config.scheduler == 'PolynomialDecayLR':
         main_scheduler = optim.lr_scheduler.PolynomialLR(
-            optimizer, total_iters=total_epochs * len_train_data, power=2.0
+            optimizer, total_iters=config.epochs * len_train_data, power=2.0
         )
     else:
         raise ValueError(f"Unsupported scheduler: {config.scheduler}")
 
     # Full
-    warmup_scheduler = create_warmup_scheduler(optimizer, 0.1, warmup_epochs, warmup_iters)
+    warmup_scheduler = create_warmup_scheduler(optimizer, 0.1, config.warmup, warmup_iters)
 
     if warmup_scheduler:
         scheduler = optim.lr_scheduler.SequentialLR(
             optimizer,
             schedulers=[warmup_scheduler, main_scheduler],
-            milestones=[warmup_epochs]
+            milestones=[config.warmup]
         )
     else:
         scheduler = main_scheduler
@@ -76,39 +76,58 @@ def sel_scheduler(config:ModelConfig, optimizer: torch.optim.Optimizer, len_trai
     return scheduler
 
 
-def create_warmup_scheduler(optimizer: torch.optim.Optimizer, start: float, warmup_epochs: int, warmup_iters: int):
+def create_warmup_scheduler(optimizer: torch.optim.Optimizer, start: float, warmup_epochs: int, warmup_iters: int) -> torch.optim.lr_scheduler._LRScheduler:
     if warmup_epochs > 0:
         return optim.lr_scheduler.LinearLR(
             optimizer, start_factor=start, total_iters=warmup_epochs
         )
     return None
 
+#------------------------------------------------------------------------------------------------------------------------------------------------------------
+#                                                       Methods for dynamic local steps scheduling
+#------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# Methods for dynamic local steps scheduling
 
 def asc_linear_ls(config: ModelConfig, meta_config: dict)-> None:
+    '''
+    Linearly maps the epoch to the range of local steps: from 4 to 64 
+    '''
     meta_config['ls'] = (int(meta_config['epoch']/(config.epochs-1)*120+1)//2 + 4)
     meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
 
 def desc_linear_ls(config: ModelConfig, meta_config: dict)-> None:
+    '''
+    Linearly maps the epoch to the range of local steps: from 64 to 4 
+    '''
     meta_config['ls'] = int(((1.0-meta_config['epoch']/(config.epochs-1))*120+1)//2 + 4)
     meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
 
 def asc_binary_ls(config: ModelConfig, meta_config: dict)-> None:
+    '''
+    Linearly maps the epoch to the power of 2 of local steps: from 2**2=4 to 2**6=64 
+    '''
     power2 = (int(meta_config['epoch']/(config.epochs-1)*8+1)//2 + 2)
     meta_config['ls'] = 2**power2
     meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
 
 def desc_binary_ls(config: ModelConfig, meta_config: dict)-> None:
+    '''
+    Linearly maps the epoch to the power of 2 of local steps: from 2**6=64 to 2**2=4 
+    '''
     power2 = int(((1.0-meta_config['epoch']/(config.epochs-1))*8+1)//2 + 2)
     meta_config['ls'] = 2**power2
     meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
 
 def improvement_ls(config: ModelConfig, meta_config: dict) -> None:
-    if meta_config['no_impr_count'] > 4:
+    '''
+    In case of improvement (validation accuracy increase), no improvement = 0 reduce synchronisations steps increasing the power of 2 of the local steps
+    In case of no improvement for at least 4 Epochs, no improvement > 4 increase synchronisations steps decreasing the power of 2 of local steps
+    local steps have a maximum of 64 steps and a minimum of 4
+    '''
+    if meta_config['no_impr_count'] > 3:
         if meta_config['ls']> 4:    
                 meta_config['ls'] //= 2
-    elif meta_config['no_impr_count'] < 2:
+    elif meta_config['no_impr_count'] < 1:
         if meta_config['ls'] < 64:
             meta_config['ls'] *= 2
 
@@ -237,6 +256,8 @@ def avg_loss_ls(config: ModelConfig, meta_config: dict) -> None:
                 meta_config['ls'] *= 2
     # adapt the synchronization steps to the new value
     meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+
+
 
 def sel_dynamic_ls(config: ModelConfig)-> callable:
     if config.work.dynamic.strategy == 'LossLS':

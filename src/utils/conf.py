@@ -2,7 +2,6 @@ from pydantic import BaseModel
 from pathlib import Path
 from typing import List, Optional, Union
 
-
 class DynamicConfig(BaseModel):
     strategy: str
     n_losses: int

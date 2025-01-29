@@ -34,10 +34,11 @@ from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_
 # [ ] # Final check
 
 
-last_step_skip = True
+last_step_skip = False
 
 
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
+    ''' Centralized Model Training Function '''
     running_loss = 0.0
     correct = 0
     total = 0
@@ -45,6 +46,7 @@ def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module,
     for inputs, labels in train_loader:
         inputs, labels = inputs.to(device), labels.to(device)
 
+        # Reset Gradiants
         optimizer.zero_grad()
 
         # Forward pass
@@ -60,76 +62,96 @@ def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module,
         _, predicted = torch.max(outputs, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
+
     return [running_loss], [100 * correct/total]
 
 
 def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, training_data_splits: DataLoader, optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
+    ''' Distributed Model Training Function'''
     losses = [0]*config.num_workers
     totals = [0]*config.num_workers
     corrects = [0]*config.num_workers
     
+    # SlowMo Initialization
     alpha =  1.0 if config.slowmo is None else config.slowmo.learning_rate
     beta = 0.0 if config.slowmo is None else config.slowmo.momentum
     slowmo_buffer = [torch.zeros_like(param) for param in model.parameters()]    
     
+    # Create Workers and optimizer based on the model
     list_models = [deepcopy_model(model) for _ in range(config.num_workers)]
     list_optimizers = [optim.SGD(list_models[worker_id].parameters(), lr=list_models[worker_id].learning_rate, momentum=0.9, weight_decay=config.weight_decay) for worker_id in range(config.num_workers)]
+    # Create Iterator for the Dataset
     iters = [iter(train_loader) for train_loader in training_data_splits]
     
+    # Last Synch flag Variable
     updated = False
 
     with tqdm(range(meta_config['budget']), desc='Sync', position=0) as pbar_t:
         for t in pbar_t:
-            # workers step
+            # Workers step
             for worker_id in range(config.num_workers):
                 try:
                     inputs, labels = next(iters[worker_id])
                 except StopIteration:
                     iters[worker_id] = iter(training_data_splits[worker_id])
                     inputs, labels = next(iters[worker_id])
-                # transfer them to GPU
+                # Transfer them to GPU
                 inputs, labels = inputs.to(device), labels.to(device)
-                # reset gradients
+                # Reset gradients
                 list_optimizers[worker_id].zero_grad()
-                # local forward pass
+                # Local forward pass
                 outputs = list_models[worker_id](inputs)
                 loss = criterion(outputs, labels)
-                # local backward pass and optimization
+                # Local backward pass and optimization
                 loss.backward()
                 list_optimizers[worker_id].step()
+                # Track local loss and accuracy
                 losses[worker_id] += loss.item()/meta_config['budget']
                 _, predicted = torch.max(outputs, 1)
                 totals[worker_id] += labels.size(0)
                 corrects[worker_id] += (predicted == labels).sum().item()
 
-                #pbar.write(f"Work{worker_id+1:02} Loss: {loss}")
+            # Set the update Flag to Model not updated
             updated = False
-            # syncronization
+
+            # Syncronization
             if (t+1)% meta_config['ls'] == 0:
+                # Get local models parameters
                 list_params = [[param for param in list_models[worker_id].parameters()] for worker_id in range(config.num_workers)]
 
-                # Average gradients across all nodes
+                # Average parameters across all nodes and update SlowMo Buffer
                 avg_params = [torch.mean(torch.stack(worker_param), dim=0) for worker_param in zip(*list_params)]
                 slowmo_buffer = [beta*slowmo_param + (1/model.learning_rate)*(param - avg_param) for slowmo_param, avg_param, param in zip(slowmo_buffer, avg_params, model.parameters())]
+
                 # Apply averaged gradients to the global model
                 with torch.no_grad():
                     for param, slowmo_param in zip(model.parameters(), slowmo_buffer):
                         param.grad = slowmo_param.clone()
                         param.data -= alpha *model.learning_rate * param.grad
                 
+                # Clone the weight of the  Global Model to the Workers
+                for local_model in list_models:
+                    for param, local_param in zip(model.parameters(), local_model.parameters()):
+                        local_param.data = param.data.clone()
+    
+                # Set the update Flag to Model updated
                 updated = True
-
+                
+                # If skip is enable, it's not the last iteration and the next synchronization would be after the dataset exploration
+                # End the Epoch Training
                 if t+meta_config['ls'] > meta_config['budget'] and t+1 != meta_config['budget'] and last_step_skip:
                     pbar_t.close()
                     break
-        
+        # In case of skip not enabled and last synchronization was not on the last iteration
+        # Synchronize the global Model 
         if not last_step_skip and not updated:
-                pbar_t.write('entra nell ultimo aggiornamento')
+                # Get local models parameters
                 list_params = [[param for param in list_models[worker_id].parameters()] for worker_id in range(config.num_workers)]
 
-                # Average gradients across all nodes
+                # Average parameters across all nodes and update SlowMo Buffer
                 avg_params = [torch.mean(torch.stack(worker_param), dim=0) for worker_param in zip(*list_params)]
                 slowmo_buffer = [beta*slowmo_param + (1/model.learning_rate)*(param - avg_param) for slowmo_param, avg_param, param in zip(slowmo_buffer, avg_params, model.parameters())]
+
                 # Apply averaged gradients to the global model
                 with torch.no_grad():
                     for param, slowmo_param in zip(model.parameters(), slowmo_buffer):
@@ -137,13 +159,13 @@ def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
                         param.data -= alpha *model.learning_rate * param.grad
 
 
-
+    # Meta Parameters for Dynamic Local Step Scheduler
     if config.work.dynamic is not None:
         if config.work.dynamic.strategy == "AvgParamDev":
             meta_config['avg_params'] = avg_params
             meta_config['list_params'] = list_params
 
-    return losses, [100*correct/total for correct, total in zip(corrects, totals)]#, avg_params, list_params
+    return losses, [100*correct/total for correct, total in zip(corrects, totals)]
 
 
 def defineTraining(config: ModelConfig) -> callable:
@@ -172,7 +194,9 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     val_acc = 0.0 if checkpoint is None else checkpoint['val_acc']
     best_acc = 0.0 if checkpoint is None else checkpoint['best_acc']
     start_epoch = 0 if checkpoint is None else checkpoint['start_epoch']
+    
 
+    # Create the Training Dataloaders for Centralized or Distributed
     if config.model.num_workers > 0:
         train_loader = [DataLoader(data, batch_size=config.model.work.batch_size, shuffle=True, drop_last=False) for data in train_data]
     else:
@@ -181,6 +205,7 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
 
     train_func = defineTraining(config.model)
 
+    # Define Meta configuration Parameters for Local Step Dynamic Scheduler
     if config.model.num_workers > 0:
         meta_config= {
             'budget': max([len(loader) for loader in train_loader]),
@@ -197,6 +222,7 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     postfix = {'Val_Acc': f'{val_acc:.2f}%', 'Best_Acc': f'{best_acc:.2f}%'}
     with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
         for epoch in pbar:
+            # Learning Rate Update
             model.learning_rate = scheduler.get_last_lr()[0] if scheduler.get_last_lr()[0] != 0 else model.learning_rate
             model.train()
 
@@ -209,7 +235,7 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
                 train_acc.append(ep_acc)
 
             if config.model.num_workers > 0:
-            # add current number of local steps performed and current learning rate
+            # Add current number of local steps performed and current learning rate
                 train_local_steps.append(meta_config['ls'])
                 train_learning_rates.append(model.learning_rate)
 
@@ -220,6 +246,7 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
 
             val_losses.append(val_loss)
             val_accuracies.append(val_acc)
+
             if config.model.num_workers > 0:
                 if config.model.work.dynamic:
                     if len(val_losses) > config.model.work.dynamic.n_losses:
@@ -302,9 +329,10 @@ def evaluate_model(config: ModelConfig, test_data: torchvision.datasets, model: 
 
 if __name__ == '__main__':
     script_dir = Path(__file__).parent
-
+    # Set default Configuration File
     yaml_path = script_dir / 'config' / 'SlowMo_Lenet.yaml'    
     parser = Parser(yaml_path)
+    # Read Configuration File and Parse possible arguments
     config, device = parser.parse_args()
 
     train_data, val_data, test_data = load_cifar100(config)
@@ -312,27 +340,33 @@ if __name__ == '__main__':
     model = sel_model(config.model)
     device = sel_device(device)
     model = model.to(device)
+    # Skip other Selectors in case of Only Test
     if config.experiment.test_only == False:
         loss_function = sel_loss(config.model)
         optimizer = sel_optimizer(config.model, model)
         scheduler = sel_scheduler(config.model, optimizer, len(train_data))
         best_model = deepcopy_model(model)
-    
+
         checkpoint = None
+        # Load previous checkpoint in case of resume 
         if config.experiment.resume:     
             checkpoint = load_checkpoint(config, model, best_model, optimizer, scheduler)
 
+    # Load pretrained weights in case of pretrained model
     if config.model.pretrained:
         load_pretrain(config, model)
 
+    # Train the model and Test the Best Model if it's not Only Test
     if config.experiment.test_only == False:
         best_model, meta_config = train_model(config, train_data, val_data, model, best_model, device, optimizer, scheduler, loss_function, checkpoint)
         best_model_acc = evaluate_model(config.model,test_data, best_model)
         print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
     
+    # Test the Model
     model_acc = evaluate_model(config.model,test_data, model)
     print(f'Model Test Accuracy: {model_acc:.2f}%')
     
+    # Save Result and Settings
     if config.experiment.test_only == False:
         save_to_csv(config, meta_config, model_acc, best_model_acc)
 
