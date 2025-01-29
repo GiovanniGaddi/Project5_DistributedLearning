@@ -3,6 +3,7 @@ import csv
 import torch
 from copy import deepcopy
 from utils.conf import Config
+import pickle
 
 
 #Save checkpoint
@@ -71,3 +72,26 @@ def save_to_csv(config: Config, meta_config: dict, model_accuracy: float, best_m
         ]
         writer.writerow(row)
         print(row)
+
+def save_to_pickle(config: dict, meta_config: dict) -> None:
+    strategy = ""
+    if config.model.work.dynamic:
+        strategy = f"strat-{config.model.work.dynamic.strategy}_nLosses-{config.model.work.dynamic.n_losses}_"
+    slowmo = ""
+    if config.model.slowmo:
+        slowmo = f"slr-{config.model.slowmo.learning_rate}_sm-{config.model.slowmo.momentum}_"
+    filepath = f"{strategy}{slowmo}K-{config.model.num_workers}.pkl"
+    datatypes = {
+        "val_acc": "val_accuracies", 
+        "val_loss": "val_losses", 
+        "train_acc": "train_accuracies", 
+        "train_loss": "train_losses", 
+        "train_H": "train_local_steps", 
+        "train_lr": "train_learning_rates"
+    }
+    for directory, index in datatypes.items():
+        if not os.path.exists(f"pickles/{directory}"):
+            os.makedirs(f"pickles/{directory}")
+        file = open(f"pickles/{directory}/{filepath}", "wb+")
+        pickle.dump(meta_config[index], file)
+        file.close()
