@@ -114,19 +114,19 @@ def improvement_ls(config: ModelConfig, meta_config: dict) -> None:
 
 def loss_ls(config: ModelConfig, meta_config: dict,) -> None: 
     # if at least 2 (could become an hyperparam) losses have been computed
-    if meta_config['3loss']:
+    if meta_config['loss_history']:
         # if the loss has increased during the last 2 epochs
-        if meta_config['3loss'][-1] > meta_config['3loss'][-2] and meta_config['3loss'][-2] > meta_config['3loss'][-3]: #17m25s - 56.23 - 2 workers | 15m22s - 56.60 - 4 workers | 13m32s - 52.7 - 8 workers
+        if meta_config['loss_history'][-1] > meta_config['loss_history'][-2] and meta_config['loss_history'][-2] > meta_config['loss_history'][-3]: #17m25s - 56.23 - 2 workers | 15m22s - 56.60 - 4 workers | 13m32s - 52.7 - 8 workers
             # half the local steps (min 4 but could be as low as 1)
             if meta_config['ls']> 4:    
                 meta_config['ls'] //= 2
         # if the loss has decreased over the last 2 epochs
-        elif meta_config['3loss'][-1] < meta_config['3loss'][-2] and meta_config['3loss'][-2] < meta_config['3loss'][-3]:
+        elif meta_config['loss_history'][-1] < meta_config['loss_history'][-2] and meta_config['loss_history'][-2] < meta_config['loss_history'][-3]:
             # double the local steps (max 64 but could be higher)
             if meta_config['ls'] < 64:
                 meta_config['ls'] *= 2
-        # adapt the synchronization steps to the new value
-        meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+    # adapt the synchronization steps to the new value
+    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
 
 def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75, steepness: float = 0.5)-> None:
     """
@@ -223,41 +223,41 @@ def avg_param_dev_ls(config: ModelConfig, meta_config: dict, threshold=0.5): #th
     meta_config['ss'] = T
     meta_config['tot_ss'] += T
 
-def avg_loss_ls(config: ModelConfig, meta_config: dict) -> None
-    if len(meta_config['10loss']) >= 10: #16m03s - 57.19 - 2 workers | 13m40s - 56.50 - 4 workers | 14m58s / 13m14s - 52.34 / 52.25 - 8 workers 
+def avg_loss_ls(config: ModelConfig, meta_config: dict) -> None:
+    if meta_config['loss_history']: #16m03s - 57.19 - 2 workers | 13m40s - 56.50 - 4 workers | 14m58s / 13m14s - 52.34 / 52.25 - 8 workers 
         # compute last 5 epochs average loss
-        new_avg = sum(meta_config['10loss'][-5:])/len(meta_config['10loss'][-5:])
+        new_avg = sum(meta_config['loss_history'][-config.model.work.dynamic.n_losses//2:])/(config.model.work.dynamic.n_losses//2)
         # compute second-to-last group of 5 epochs average loss
-        old_avg = sum(meta_config['10loss'][-10:-5])/len(meta_config['10loss'][-10:-5])
+        old_avg = sum(meta_config['loss_history'][-config.model.work.dynamic.n_losses:-config.model.work.dynamic.n_losses//2])/(config.model.work.dynamic.n_losses//2)
         if new_avg > old_avg and config.model.work.local_steps > 4:
             # half the local steps (min 4 but could be as low as 1)
                 meta_config['ls'] //= 2
         elif new_avg < old_avg and config.model.work.local_steps < 64:
             # double the local steps (max 64 but could be higher)
                 meta_config['ls'] *= 2
-        # adapt the synchronization steps to the new value
-        meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+    # adapt the synchronization steps to the new value
+    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
 
 def sel_dynamic_ls(config: ModelConfig)-> callable:
-    if config.work.dynamic == 'LossLS':
+    if config.work.dynamic.strategy == 'LossLS':
         return loss_ls
-    if config.work.dynamic == 'AvgLossLS':
+    if config.work.dynamic.strategy == 'AvgLossLS':
         return avg_loss_ls
-    elif config.work.dynamic == 'RevCosAnn':
+    elif config.work.dynamic.strategy == 'RevCosAnn':
         return reverse_cosine_annealing_ls
-    elif config.work.dynamic == 'Sigmoid':
+    elif config.work.dynamic.strategy == 'Sigmoid':
         return sigmoid_based_ls
-    elif config.work.dynamic == 'AvgParamDev':
+    elif config.work.dynamic.strategy == 'AvgParamDev':
         return avg_param_dev_ls
-    elif config.work.dynamic == 'ImprLS':
+    elif config.work.dynamic.strategy == 'ImprLS':
         return improvement_ls
-    elif config.work.dynamic == 'ALin':
+    elif config.work.dynamic.strategy == 'ALin':
         return asc_linear_ls
-    elif config.work.dynamic == 'DLin':
+    elif config.work.dynamic.strategy == 'DLin':
         return desc_linear_ls
-    elif config.work.dynamic == 'ABin':
+    elif config.work.dynamic.strategy == 'ABin':
         return asc_binary_ls
-    elif config.work.dynamic == 'Dlin':
+    elif config.work.dynamic.strategy == 'Dlin':
         return desc_binary_ls
     else:
-        raise ValueError(f"Unsupported local steps scheduler: {config.work.dynamic}")
+        raise ValueError(f"Unsupported local steps scheduler: {config.work.dynamic.strategy}")
