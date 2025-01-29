@@ -37,7 +37,8 @@ class Parser():
         self.parser.add_argument('-wss', '--worker-sync-step', type=int, dest='WSS', help='Overload set workers Syncronised Steps')
         self.parser.add_argument('-wls', '--worker-local-step', type=int, dest='WLS', help='Overload set workers Local Steps')
         self.parser.add_argument('-wbs', '--worker-batch-size', type=int, dest='WBS', help='Overload set workers Batch Size')
-        self.parser.add_argument('-dls', '--dynamic-local-step', type=str, dest='DWLS', help='Overrides set dynamic local steps function')
+        self.parser.add_argument('-dls', '--dynamic-strategy', type=str, dest='DWLS', help='Overrides set dynamic local steps function')
+        self.parser.add_argument('-dnl', '--dynamic-num-loss', type=int, dest='DNL', help='Overrides set number of losses used for dynamic local steps function')
 
         # self.dynamic_steps = self.parser.add_mutually_exclusive_group()
         # self.dynamic_steps.add_argument('-edl', '--enable-dynamic-local-step', action='store_true', dest='DWLS', help='Set workers Dynamic Local Step')
@@ -94,8 +95,17 @@ class Parser():
             if self.args.WBS is not None:
                 config.model.work.batch_size = self.args.WBS
             
-            if self.args.DWLS is not None:
-                config.model.work.dynamic = self.args.DWLS
+            # if self.args.DWLS is not None:
+            #     config.model.work.dynamic = self.args.DWLS
+            if config.model.work.dynamic is not None:
+                if self.args.DWLS is not None:
+                    config.model.work.dynamic.strategy = self.args.DWLS
+                    # parameter applied only when a specific strategy has been chosen
+                    if self.args.DNL is not None:
+                        config.model.work.dynamic.n_losses = self.args.DNL
+
+            else:
+                config.model.work.dynamic = None
         
         else:
             config.model.num_workers = 0
