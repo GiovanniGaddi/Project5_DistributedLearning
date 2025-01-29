@@ -37,3 +37,29 @@ def plot_metrics(type:str, config, train_losses: list, train_accuracies: list, v
     plt.savefig(filepath)
     #plt.show()
     #plt.close()
+
+
+def plot_local_steps(H_history, epochs):
+    """
+    Plotting H with respect to epochs
+
+    Args:
+        H_history (list)
+        epochs (int)
+    """
+
+    dirname = 'plots'
+    filename = "local_steps"
+    filename += ".png"
+    filepath = os.path.join(dirname, filename)
+    os.makedirs(dirname, exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(1, epochs + 1), H_history, marker='o', label='Local Steps (H)')
+    plt.xlabel('Epochs')
+    plt.ylabel('Local Steps (H)')
+    plt.title('Local Steps (H) vs epochs')
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(filepath)
+    #plt.show()
