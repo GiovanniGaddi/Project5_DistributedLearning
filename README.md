@@ -6,7 +6,7 @@ This paper explores distributed learning techniques for deep neural network trai
 
 ## Table of Contents
 
-- [Introduzione](#introduction)  
+- [Introduction](#introduction)  
 - [Related works](#related-works)  
 - [Experiments](#experiments)  
 - [Results](#results)  
