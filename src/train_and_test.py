@@ -8,7 +8,7 @@ from tqdm import tqdm
 from utils.conf import Config, ModelConfig
 from utils.parser import Parser
 from utils.plot import plot_metrics
-from utils.utils import save_checkpoint, load_checkpoint, deepcopy_model, save_to_csv
+from utils.utils import save_checkpoint, load_checkpoint, deepcopy_model, save_to_csv, save_to_pickle
 from utils.load_dataset import load_cifar100
 from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_scheduler, sel_dynamic_ls
 
@@ -16,6 +16,23 @@ from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_
 [ ] # Comments
 [ ] # Finishing paper
 [ ] # Run guide
+
+[x] # Graph best cases (Silvano)
+[x] # Local Steps Graph (Grasso che cola ma mezza fatta, Silvano)
+[ ] # Graph centralized (Gio)
+[ ] # Add linear Experiments (Gio)
+[ ] # Slowmo beta (Silvano)
+[ ] # Tabelle Results (Silvano, Nicolò)
+[ ] # Check save/load checkpoint (Gio)
+[ ] # Check pretrained (Gio)
+[ ] # Check only-Test (Gio)
+[ ] # Skip fix (Gio)
+[ ] # Parser (Gio)
+[ ] # ReadME (Nicolò)
+[ ] # Commenti
+[ ] # Public the github
+[ ] # Final check
+
 
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
     running_loss = 0.0
@@ -41,6 +58,7 @@ def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module,
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
     return [running_loss], [100 * correct/total]
+
 
 def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, training_data_splits: DataLoader, optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
     losses = [0]*config.num_workers
@@ -100,13 +118,20 @@ def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
                     pbar_t.close()
                     break
 
-    return losses, [100*correct/total for correct, total in zip(corrects, totals)], avg_params, list_params
+    if config.work.dynamic is not None:
+        if config.work.dynamic.strategy == "AvgParamDev":
+            meta_config['avg_params'] = avg_params
+            meta_config['list_params'] = list_params
+
+    return losses, [100*correct/total for correct, total in zip(corrects, totals)]#, avg_params, list_params
+
 
 def defineTraining(config: ModelConfig) -> callable:
     if config.num_workers > 0:
         return localSDG
     else:
         return centralized
+
 
 # Training loop with validation
 def train_model(config: Config, train_data: torchvision.datasets, val_data: torchvision.datasets, model: torch.nn.Module, best_model: torch.nn.Module, device: str, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler._LRScheduler, criterion, checkpoint: dict = None) -> dict:
@@ -115,13 +140,13 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     train_accuracies = [[] for _ in range(config.model.num_workers if config.model.num_workers > 0 else 1)]
     val_losses = []
     val_accuracies = []
+    train_local_steps = []
+    train_learning_rates = []
 
     if config.model.patience <= 0:
         patience = config.model.epochs
     else:
         patience = config.model.patience
-
-    
 
     #load values form checkpoint
     val_acc = 0.0 if checkpoint is None else checkpoint['val_acc']
@@ -141,27 +166,31 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
             'budget': max([len(loader) for loader in train_loader]),
             'ls': config.model.work.local_steps,
             'no_impr_count':0,
-            '3loss': None,
+            'loss_history': None,
             'tot_ss': 0 if config.model.work.dynamic else config.model.work.sync_steps*config.model.epochs
         }
+        update_steps = sel_dynamic_ls(config.model)
     else:
         meta_config = {}
-    update_steps = sel_dynamic_ls(config.model)
 
     postfix = {'Val_Acc': f'{val_acc:.2f}%', 'Best_Acc': f'{best_acc:.2f}%'}
     with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
         for epoch in pbar:
             model.learning_rate = scheduler.get_last_lr()[0]
-            print(model.learning_rate)
             model.train()
 
             #Training phase
-            epoch_loss, epoch_acc, avg_params, list_params = train_func(config.model, meta_config, model, train_loader, optimizer, criterion, device, pbar)
+            epoch_loss, epoch_acc = train_func(config.model, meta_config, model, train_loader, optimizer, criterion, device, pbar)
 
             for train_loss, ep_loss in zip(train_losses, epoch_loss):
                 train_loss.append(ep_loss)
             for train_acc, ep_acc in zip(train_accuracies, epoch_acc):
                 train_acc.append(ep_acc)
+
+            if config.model.num_workers > 0:
+            # add current number of local steps performed and current learning rate
+                train_local_steps.append(meta_config['ls'])
+                train_learning_rates.append(model.learning_rate)
 
             scheduler.step()
 
@@ -170,13 +199,10 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
 
             val_losses.append(val_loss)
             val_accuracies.append(val_acc)
-            if config.model.work.dynamic and len(val_losses)> 2:
-                meta_config['3loss'] = val_losses[-3:]
-            if config.model.work.dynamic and len(val_losses)> 10:
-                meta_config['10loss'] = val_losses[-10:] # TODO generalize history lenght
-            if config.model.work.dynamic == 'AvgParamDev':
-                meta_config['avg_params'] = avg_params
-                meta_config['list_params'] = list_params
+            if config.model.num_workers > 0:
+                if config.model.work.dynamic:
+                    if len(val_losses) > config.model.work.dynamic.n_losses:
+                        meta_config['loss_history'] = val_losses[-config.model.work.dynamic.n_losses:]
             # Save the model with the best accuracy on the validation set
             if val_acc > best_acc:
                 best_acc = val_acc
@@ -198,9 +224,16 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
                 if config.model.work.dynamic:
                     meta_config['epoch'] = epoch
                     update_steps(config.model, meta_config)
-                    pbar.write(f'Epoch {meta_config['epoch']}: {meta_config['ls']}')
+                    pbar.write(f"Epoch {meta_config['epoch']}: {meta_config['ls']}")
             
             save_checkpoint(config, epoch, model, best_model, optimizer, scheduler, val_acc, best_acc)
+    
+    meta_config['val_losses'] = val_losses
+    meta_config['val_accuracies'] = val_accuracies
+    meta_config['train_losses'] = train_losses
+    meta_config['train_accuracies'] = train_accuracies
+    meta_config['train_local_steps'] = train_local_steps
+    meta_config['train_learning_rates'] = train_learning_rates
 
     plot_metrics("distributed" if config.model.num_workers > 0 else "centralized", config, train_losses, train_accuracies, val_losses, val_accuracies)
     return meta_config
@@ -246,7 +279,6 @@ def evaluate_model(config: ModelConfig, test_data: torchvision.datasets, model: 
     return accuracy
 
 
-
 if __name__ == '__main__':
     script_dir = Path(__file__).parent
 
@@ -273,4 +305,5 @@ if __name__ == '__main__':
     best_model_acc = evaluate_model(config.model,test_data, best_model)
     print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
     save_to_csv(config, meta_config, model_acc, best_model_acc)
-    print(meta_config['tot_ss'])
+    if config.model.num_workers > 0:
+        save_to_pickle(config, meta_config)
