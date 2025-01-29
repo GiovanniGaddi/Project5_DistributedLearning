@@ -27,7 +27,6 @@ class ModelConfig(BaseModel):
     scheduler: str
     weight_decay: float
     slowmo: Optional[SlowMOConfig] = None
-    test: Optional[bool] = False
     warmup: Optional[int] = None
     patience: Optional[int] = None
     pretrained: Optional[Path] = None
@@ -37,14 +36,11 @@ class ModelConfig(BaseModel):
 class ExperimentConfig(BaseModel):
     name: str
     resume: bool
+    test_only: Optional[bool] = False
     version: float
     output: Optional[Path] = "results.csv"
-
-class CheckpointConfig(BaseModel):
-    dir: Path
-    save_top_k: int
+    checkpoint_dir: Optional[Path] = "./checkpoints"
 
 class Config(BaseModel):
     model:      ModelConfig
     experiment: ExperimentConfig
-    checkpoint: CheckpointConfig

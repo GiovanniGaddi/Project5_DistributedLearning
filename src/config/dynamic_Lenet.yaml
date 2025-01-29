@@ -1,0 +1,25 @@
+model:
+  name: LeNet
+  epochs: 150
+  batch_size: 64
+  learning_rate: 4e-2
+  loss: CSE
+  optimizer: SGDM
+  scheduler: CosineAnnealingLR
+  test: False
+  warmup: 15
+  patience: 15
+  weight_decay: 1e-3
+  slowmo:
+    learning_rate: 1.0
+    momentum: 0.6
+  work: 
+    sync_steps: 44
+    local_steps: 4
+    batch_size: 64
+  num_workers: 4
+experiment:
+  name: train_lenet_cifar100
+  resume: False
+  version: 0.0
+  output: 'dynamicGG.csv'

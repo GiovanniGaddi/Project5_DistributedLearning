@@ -72,7 +72,7 @@ def sel_scheduler(config:ModelConfig, optimizer: torch.optim.Optimizer, len_trai
         )
     else:
         scheduler = main_scheduler
-    print(scheduler)
+
     return scheduler
 
 

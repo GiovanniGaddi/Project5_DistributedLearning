@@ -9,23 +9,17 @@ model:
   test: False
   warmup: 15
   patience: 15
-  weight_decay: 1e-4
+  weight_decay: 1e-3
   slowmo:
     learning_rate: 1.0
-    momentum: 0.6
+    momentum: 0.1
   work: 
-    sync_steps: 88
-    local_steps: 4
+    sync_steps: 2
+    local_steps: 64
     batch_size: 64
-    dynamic: 
-      strategy: LossLS
-      n_losses: 3
-  num_workers: 2
+  num_workers: 4
 experiment:
-  name: train_lenet_cifar100
+  name: train_slowmo
   resume: False
   version: 0.0
   output: slowmo.csv
-checkpoint:
-  dir: ./checkpoints
-  save_top_k: 3

@@ -1,0 +1,2 @@
+Parameter: feature.0.weight
+Shape: torch.Size([64, 3, 5, 5])

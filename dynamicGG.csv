@@ -1,0 +1,9 @@
+Model Name,Epochs,Batch Size,Learning Rate,Loss,Optimizer,Scheduler,Test,Warmup,Patience,Weight Decay,Pretrained,Total Sync Steps,Work Sync Steps,Work Local Steps,Work Batch Size,Num Workers,Slowmo LR,SlowMo Momentum,Dynamic LS,Model Accuracy,Best Model Accuracy
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,1174,44,4,64,4,1.0,0.6,ALin,56.95,0.73
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,1174,44,4,64,4,1.0,0.6,DLin,56.92,0.9
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,2291,44,4,64,4,1.0,0.6,ABin,56.5,1.44
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,0,44,4,64,4,1.0,0.6,ImprLS,55.87,0.99
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,6600,44,4,64,4,1.0,0.6,,56.36,1.09
+LeNet,1,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,44,44,4,64,4,1.0,0.6,,2.38,1.16
+LeNet,1,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,44,44,4,64,4,1.0,0.6,,2.04,2.04
+LeNet,1,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,44,44,4,64,4,1.0,0.6,,1.98,1.02

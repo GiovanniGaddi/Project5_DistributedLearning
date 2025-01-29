@@ -14,24 +14,32 @@ def save_checkpoint(config: Config, epoch: int, model: torch.nn.Module, best_mod
         'best_model_state_dict': best_model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'scheduler_state_dict': scheduler.state_dict(),
+        'learning_rate': model.learning_rate,
         'val_acc': val_acc,
         'best_acc': best_acc
     }
-    torch.save(checkpoint, os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
+    torch.save(checkpoint, os.path.join(config.experiment.checkpoint_dir, f'{config.experiment.version}.pth'))
 
-def load_checkpoint(config:Config, model: torch.nn.Module, best_model:torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler._LRScheduler) -> dict:
-        checkpoint = torch.load(os.path.join(config.checkpoint.dir, f'{config.experiment.version}.pth'))
+def load_checkpoint(config:Config, model: torch.nn.Module, best_model:torch.nn.Module, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler._LRScheduler, pretrained: bool = False) -> dict:
+        checkpoint = torch.load(os.path.join(config.experiment.checkpoint_dir, f'{config.experiment.version}.pth'))
         model.load_state_dict(checkpoint['model_state_dict'])
         best_model.load_state_dict(checkpoint['best_model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-
+        model.learning_rate = checkpoint['learning_rate']
         train_state = {}
         train_state['start_epoch'] = checkpoint['epoch'] + 1
         train_state['val_acc'] = checkpoint['val_acc']
         train_state['best_acc'] = checkpoint['best_acc']
 
         return train_state
+
+def load_pretrain(config:Config, model: torch.nn.Module) -> None:
+        checkpoint = torch.load(config.model.pretrained, weights_only = True)
+        tmp_model = deepcopy(model)
+        tmp_model.load_state_dict(checkpoint['model_state_dict'])
+        for param, tmp_param in zip(model.parameters(), tmp_model.parameters()):
+            param.data = tmp_param.data.clone()
 
 def deepcopy_model(model: torch.nn.Module) -> torch.nn.Module:
     tmp_model = deepcopy(model)

@@ -2,7 +2,7 @@ from tqdm import trange
 from torch.utils.data import random_split, Subset
 from torchvision import datasets, transforms
 
-from utils.conf import ModelConfig
+from utils.conf import Config
 
 validation_split = 0.1  # 10% of the training data will be used for validation
 
@@ -33,7 +33,7 @@ def split_dataset(dataset, k: int)-> list[Subset]:
     subsets = random_split(dataset, lengths)
     return subsets
 
-def load_cifar100(config: ModelConfig)-> tuple[Subset, Subset, datasets]:
+def load_cifar100(config: Config)-> tuple[Subset, Subset, datasets]:
     # Transform the training set
     train_transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),  
@@ -48,16 +48,21 @@ def load_cifar100(config: ModelConfig)-> tuple[Subset, Subset, datasets]:
         transforms.ToTensor(),                
         transforms.Normalize(mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761])  
     ])
+    if config.experiment.test_only:
+        train_subset = None
+        val_subset = None
+    else:
+        # Load CIFAR-100 dataset + transformation
+        train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=train_transform)
+        
+        # Split the training dataset into training and validation sets
+        train_size = int((1 - validation_split) * len(train_dataset))
+        val_size = len(train_dataset) - train_size
+        train_subset, val_subset = random_split(train_dataset, [train_size, val_size])
+        if config.model.num_workers > 0:
+            train_subset = iid_sharding(train_subset, config.model.num_workers)
 
-    # Load CIFAR-100 dataset + transformation
-    train_dataset = datasets.CIFAR100(root='./data', train=True, download=True, transform=train_transform)
     test_dataset = datasets.CIFAR100(root='./data', train=False, download=True, transform=test_transform)
-
-    # Split the training dataset into training and validation sets
-    train_size = int((1 - validation_split) * len(train_dataset))
-    val_size = len(train_dataset) - train_size
-    train_subset, val_subset = random_split(train_dataset, [train_size, val_size])
-    if config.num_workers > 0:
-        train_subset = iid_sharding(train_subset, config.num_workers)
+    
     return train_subset, val_subset, test_dataset
 

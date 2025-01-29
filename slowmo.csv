@@ -1,0 +1,20 @@
+Model Name,Epochs,Batch Size,Learning Rate,Loss,Optimizer,Scheduler,Test,Warmup,Patience,Weight Decay,Pretrained,Total Sync Steps,Work Sync Steps,Work Local Steps,Work Batch Size,Num Workers,Slowmo LR,SlowMo Momentum,Dynamic LS,Model Accuracy,Best Model Accuracy
+LeNet,150,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,13200,88,4,64,2,1.0,0.1,,56.47,56.38
+LeNet,150,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,6600,44,8,64,2,1.0,0.1,,56.78,55.96
+LeNet,150,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,3300,22,16,64,2,1.0,0.1,,56.53,56.78
+LeNet,150,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,1650,11,32,64,2,1.0,0.1,,57.0,56.87
+LeNet,150,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,750,5,64,64,2,1.0,0.1,,56.77,56.77
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,6600,44,4,64,4,1.0,0.1,,57.48,57.39
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,3300,22,8,64,4,1.0,0.1,,56.7,56.56
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,1650,11,16,64,4,1.0,0.1,,56.99,56.99
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,750,5,32,64,4,1.0,0.1,,56.53,56.68
+LeNet,150,64,0.04,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,300,2,64,64,4,1.0,0.1,,56.45,56.09
+LeNet,150,64,0.08,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,3300,22,4,64,8,1.0,0.1,,54.84,54.85
+LeNet,150,64,0.08,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,1650,11,8,64,8,1.0,0.1,,55.78,55.83
+LeNet,150,64,0.08,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,750,5,16,64,8,1.0,0.1,,54.41,54.48
+LeNet,150,64,0.08,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,300,2,32,64,8,1.0,0.1,,53.73,53.64
+LeNet,150,64,0.08,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,150,1,64,64,8,1.0,0.1,,53.76,53.89
+LeNet,20,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,40,2,64,64,4,1.0,0.1,,33.39,33.39
+LeNet,40,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,80,2,64,64,4,1.0,0.1,,42.49,42.49
+LeNet,20,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,40,2,64,64,4,1.0,0.1,,33.14,33.14
+LeNet,20,64,0.02,CSE,SGDM,CosineAnnealingLR,False,15,15,0.001,,40,2,64,64,4,1.0,0.1,,32.35,32.35

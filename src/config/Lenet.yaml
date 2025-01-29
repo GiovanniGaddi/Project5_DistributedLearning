@@ -15,6 +15,3 @@ experiment:
   name: train_lenet_cifar100
   resume: False
   version: 0.0
-checkpoint:
-  dir: ./checkpoints
-  save_top_k: 3
