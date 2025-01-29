@@ -195,7 +195,6 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     best_acc = 0.0 if checkpoint is None else checkpoint['best_acc']
     start_epoch = 0 if checkpoint is None else checkpoint['start_epoch']
     
-
     # Create the Training Dataloaders for Centralized or Distributed
     if config.model.num_workers > 0:
         train_loader = [DataLoader(data, batch_size=config.model.work.batch_size, shuffle=True, drop_last=False) for data in train_data]

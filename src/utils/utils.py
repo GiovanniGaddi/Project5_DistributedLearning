@@ -81,10 +81,12 @@ def save_to_csv(config: Config, meta_config: dict, model_accuracy: float, best_m
         writer.writerow(row)
         print(row)
 
-def save_to_pickle(config: dict, meta_config: dict) -> None:
+def save_to_pickle(config: Config, meta_config: dict) -> None:
     strategy = ""
     if config.model.work.dynamic:
         strategy = f"strat-{config.model.work.dynamic.strategy}_nLosses-{config.model.work.dynamic.n_losses}_"
+    else:
+        strategy = f'LS-{config.model.work.local_steps}_SS-{config.model.work.sync_steps}_'
     slowmo = ""
     if config.model.slowmo:
         slowmo = f"slr-{config.model.slowmo.learning_rate}_sm-{config.model.slowmo.momentum}_"
