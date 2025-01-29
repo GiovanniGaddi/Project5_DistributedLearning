@@ -1,17 +1,16 @@
 model:
   name: LeNet
   epochs: 150
-  batch_size: 1024
+  batch_size: 64
   learning_rate: 0.005
   loss: CSE
   optimizer: LAMB
-  scheduler: WarmUpPolynomialDecayLR
-  patience: 15
-  warmup: 15
-  pretrained:
-  test: False
-  num_nodes: 2
+  scheduler: CosineAnnealingLR
+  patience: 150
+  warmup: 0
+  weight_decay: 0.0001
+  num_workers: 0
 experiment:
-  name: train_lenet_cifar100
+  name: centralized_lenet
   resume: False
-  version: 0.0
+  version: 1.0
