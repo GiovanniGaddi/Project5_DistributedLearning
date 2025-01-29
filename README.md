@@ -7,7 +7,8 @@ This paper explores distributed learning techniques for deep neural network trai
 ## Table of Contents
 
 - [Introduction](#introduction)  
-- [Related works](#related-works)  
+- [Related works](#related-works)
+- [Repository structure](#repository-structure) 
 - [Experiments](#experiments)  
 - [Results](#results)  
 - [Conclusion](#conclusion) 
@@ -16,9 +17,45 @@ This paper explores distributed learning techniques for deep neural network trai
 
 Deep learning models require significant computational resources. Distributed learning, particularly data parallelism, accelerates training but introduces challenges such as communication overhead and optimization stability. We analyze large-batch training and local update methods within synchronous distributed learning to find optimal training strategies.
 
-## Related Works
+## Related works
 
 We review recent advancements in distributed learning, focusing on communication efficiency, large-batch optimization, and scalability, providing key insights into learning rate scaling, LocalSGD, and momentum-based optimization techniques.
+
+## Repository structure
+
+This section describes the structure of the project repository and explains the purpose of each file and folder.
+
+### Directory Layout
+
+The repository is organized as follows:
+
+```
+./
+│
+├── src/                        # Main source code folder
+│   ├── train_and_test.py        # Main script for training and testing the model
+│   ├── config/                  # Configuration folder
+│   │   └── Distributed_Lenet.yaml          # Example of configuration file (YAML format)
+│   ├── model/                   # Folder containing model-related files
+│   │   └── lenet5.py            # LeNet-5 model architecture definition
+│   └── utils/                   # Utility scripts and helper functions
+│       ├── conf.py              # Configuration settings
+│       ├── parser.py            # Argument parsing utility
+│       ├── load_dataset.py      # Dataset loading and preprocessing
+│       ├── optim.py             # Custom optimizers 
+│       ├── plot.py              # Plotting and visualization functions
+│       ├── selectors.py         # Utility to select optimizers, schedulers, etc
+│       └── utils.py             # General utility functions, such as saving results, checkpoints, etc
+│
+├── checkpoints/                 # Folder for saving model checkpoints
+│   └── model_checkpoint.pth     # Example of saved model checkpoint
+│
+├── requirements.txt             # List of project dependencies (Python libraries)
+├── README.md                    # Project documentation (you are here)
+└── RUN_GUIDE.md                 # Run guide for executing the project
+
+```
+
 
 ## Experiments
 
@@ -26,23 +63,23 @@ We review recent advancements in distributed learning, focusing on communication
 
 We use the CIFAR-100 dataset, consisting of 60,000 images across 100 classes, for evaluating our distributed learning techniques.
 
-### Implementation Details
+### Implementation details
 
 We employ a modified LeNet-5 architecture with convolutional and fully connected layers. A centralized baseline is established using AdamW and SGDM optimizers.
 
-### Large-Batch Optimization
+### Large-batch optimization
 
 We analyze the scalability of LARS and LAMB optimizers, evaluating their impact on training performance with increasing batch sizes.
 
-### Local Methods
+### Local methods
 
 We implement LocalSGD with varying numbers of workers (K) and local steps (H), balancing synchronization frequency and computational efficiency.
 
-### Hybrid Optimization
+### Hybrid optimization
 
 We integrate SlowMo, a hybrid optimizer, to mitigate performance degradation in LocalSGD by applying momentum correction.
 
-### Dynamic Local Step Adjustment
+### Dynamic local step adjustment
 
 We propose and test multiple dynamic strategies to adjust the number of local steps during training, leveraging for example loss-based adjustments, learning rate scheduling, and parameter deviation tracking.
 
@@ -59,5 +96,7 @@ Dynamic adjustment of local steps improves convergence stability and reduces com
 ## Conclusion
 
 This study provides practical insights into optimizing distributed learning. By evaluating large-batch training and local update methods, we propose strategies to improve efficiency and scalability in deep learning training pipelines.
+
+
 
 
