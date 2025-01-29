@@ -17,6 +17,9 @@ model:
     sync_steps: 88
     local_steps: 4
     batch_size: 64
+    dynamic: 
+      strategy: LossLS
+      n_losses: 3
   num_workers: 2
 experiment:
   name: train_lenet_cifar100
