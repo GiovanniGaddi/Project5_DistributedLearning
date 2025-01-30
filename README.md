@@ -42,7 +42,7 @@ The repository is organized as follows:
 │       ├── conf.py                          Configuration settings
 │       ├── parser.py                        Argument parsing utility
 │       ├── load_dataset.py                  Dataset loading and preprocessing
-│       ├── optim.py                         Custom optimizers 
+│       ├── optim.py                         Custom optimizers for large batch training
 │       ├── plot.py                          Plotting and visualization functions
 │       ├── selectors.py                     Utility to select optimizers, schedulers, etc
 │       └── utils.py                         General utility functions, such as saving results, checkpoints, etc
@@ -81,7 +81,7 @@ We integrate SlowMo, a hybrid optimizer, to mitigate performance degradation in 
 
 ### Dynamic local step adjustment
 
-We propose and test multiple dynamic strategies to adjust the number of local steps during training, leveraging for example loss-based adjustments, learning rate scheduling, and parameter deviation tracking.
+We propose and test multiple dynamic strategies to adjust the number of local steps during training, leveraging for example loss-based adjustments, learning rate scheduling, and other mathematical functions.
 
 ## Results
 
