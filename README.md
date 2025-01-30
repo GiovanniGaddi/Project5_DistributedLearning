@@ -91,7 +91,7 @@ Large-batch optimizers (LARS, LAMB) can maintain performance better than traditi
 
 LocalSGD reduces communication overhead but can suffer performance degradation, which is mitigated by SlowMo.
 
-Dynamic adjustment of local steps improves convergence stability and reduces communication costs.
+Dynamic adjustment of local steps is performed with the purpose of improving convergence stability and reducing communication costs.
 
 ## Conclusion
 
