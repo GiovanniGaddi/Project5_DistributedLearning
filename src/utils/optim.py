@@ -65,11 +65,6 @@ class LAMB(Optimizer):
                 # v_t
                 exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
-                # Paper v3 does not use debiasing.
-                # bias_correction1 = 1 - beta1 ** state['step']
-                # bias_correction2 = 1 - beta2 ** state['step']
-                # Apply bias to lr to avoid broadcast.
-                # * math.sqrt(bias_correction2) / bias_correction1
                 scaled_lr = group['lr']
                 update = exp_avg / exp_avg_sq.sqrt().add(group['eps'])
                 if group['weight_decay'] != 0:
@@ -91,7 +86,7 @@ class LAMB(Optimizer):
 
 
 class LARS(Optimizer):
-    def __init__(self, params, lr=1e-3, momentum=0.9, weight_decay=0.0, eps=1e-6, trust_coefficient=0.001):
+    def __init__(self, params, lr=1e-3, momentum=0.9, weight_decay=0.0, eps=1e-6, trust_coefficient=0.3):
         """
         LARS optimizer (cfr. You et. Al, Large Batch Training of Convolutional Networks, arXiv 2017)
         

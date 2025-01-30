@@ -15,7 +15,25 @@ from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_
 last_step_skip = False
 
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
-    ''' Centralized Model Training Function '''
+    """
+    Performs centralized training using a single training DataLoader.
+
+    Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
+        model (torch.nn.Module): The model to be trained.
+        train_loader (list[DataLoader]): A list containing DataLoaders, with the first (and only) DataLoader used for training
+        optimizer (torch.optim.Optimizer): The optimizer used for updating model weights.
+        criterion: The function used to compute the loss.
+        device (str): The device to run the computations on (e.g., 'cpu' or 'cuda').
+        pbar (tqdm): A progress bar instance for tracking training progress (not used at the moment)
+
+    Returns:
+        tuple[list[float], list[float]]: A tuple containing:
+            - A list containing the average training loss for the epoch.
+            - A list containing the training accuracy as a percentage.
+    """
+    
     running_loss = 0.0
     correct = 0
     total = 0
@@ -42,8 +60,28 @@ def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module,
 
     return [running_loss], [100 * correct/total]
 
-def localSGD(config: ModelConfig, meta_config: dict, model: torch.nn.Module, training_data_splits: DataLoader, optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
-    ''' Distributed Model Training Function'''
+def local(config: ModelConfig, meta_config: dict, model: torch.nn.Module, training_data_splits: DataLoader, optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
+    """
+    Performs local Stochastic Gradient Descent (SGD) with momentum across multiple workers with optional SlowMo synchronization.
+
+    Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
+        model (torch.nn.Module): The model to be trained.
+        training_data_splits (DataLoader): A list of DataLoaders for each worker.
+        optimizer (torch.optim.Optimizer): The optimizer used for updating model weights (unused here, since we have local methods)
+        criterion: The loss function used to compute the training loss.
+        device (str): The device to run the computations on (e.g., 'cpu' or 'cuda').
+        pbar (tqdm): A progress bar instance for tracking training progress.
+
+    Returns:
+        tuple[list[float], list[float], list[torch.Tensor], list[list[torch.Tensor]]]: A tuple containing:
+            - A list of training losses for each worker.
+            - A list of training accuracies for each worker as a percentage.
+            - A list of averaged parameters across workers.
+            - A nested list of model parameters for each worker.
+    """
+    
     losses = [0]*config.num_workers
     totals = [0]*config.num_workers
     corrects = [0]*config.num_workers
@@ -118,27 +156,25 @@ def localSGD(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
                 if t+meta_config['ls'] > meta_config['budget'] and t+1 != meta_config['budget'] and last_step_skip:
                     pbar_t.close()
                     break
-        # In case of skip not enabled and last synchronization was not on the last iteration
-        # Synchronize the global Model 
         if not last_step_skip and not updated:
-                # Get local models parameters
-                list_params = [[param for param in list_models[worker_id].parameters()] for worker_id in range(config.num_workers)]
+            # Get local models parameters
+            list_params = [[param for param in list_models[worker_id].parameters()] for worker_id in range(config.num_workers)]
 
-                # Average parameters across all nodes and update SlowMo Buffer
-                avg_params = [torch.mean(torch.stack(worker_param), dim=0) for worker_param in zip(*list_params)]
-                slowmo_buffer = [beta*slowmo_param + (1/model.learning_rate)*(param - avg_param) for slowmo_param, avg_param, param in zip(slowmo_buffer, avg_params, model.parameters())]
+            # Average parameters across all nodes and update SlowMo Buffer
+            avg_params = [torch.mean(torch.stack(worker_param), dim=0) for worker_param in zip(*list_params)]
+            slowmo_buffer = [beta*slowmo_param + (1/model.learning_rate)*(param - avg_param) for slowmo_param, avg_param, param in zip(slowmo_buffer, avg_params, model.parameters())]
 
-                # Apply averaged gradients to the global model
-                with torch.no_grad():
-                    for param, slowmo_param in zip(model.parameters(), slowmo_buffer):
-                        param.grad = slowmo_param.clone()
-                        param.data -= alpha *model.learning_rate * param.grad
+            # Apply averaged gradients to the global model
+            with torch.no_grad():
+                for param, slowmo_param in zip(model.parameters(), slowmo_buffer):
+                    param.grad = slowmo_param.clone()
+                    param.data -= alpha *model.learning_rate * param.grad
 
     return losses, [100*correct/total for correct, total in zip(corrects, totals)]
 
 def defineTraining(config: ModelConfig) -> callable:
     if config.num_workers > 0:
-        return localSGD
+        return local
     else:
         return centralized
 
@@ -161,8 +197,8 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     val_acc = 0.0 if checkpoint is None else checkpoint['val_acc']
     best_acc = 0.0 if checkpoint is None else checkpoint['best_acc']
     start_epoch = 0 if checkpoint is None else checkpoint['start_epoch']
-    
-    # Create the Training Dataloaders for Centralized or Distributed
+
+    # Setup for data loaders based on the number of workers
     if config.model.num_workers > 0:
         train_loader = [DataLoader(data, batch_size=config.model.work.batch_size, shuffle=True, drop_last=False) for data in train_data]
     else:
@@ -185,6 +221,7 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     else:
         meta_config = {}
 
+    # training loop
     postfix = {'Val_Acc': f'{val_acc:.2f}%', 'Best_Acc': f'{best_acc:.2f}%'}
     with tqdm(range(start_epoch, config.model.epochs), desc='Epoch', position=1, postfix=postfix) as pbar:
         for epoch in pbar:
@@ -230,10 +267,12 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
             postfix['Best_Acc'] = f'{best_acc:.2f}%'
             pbar.set_postfix(postfix)
 
+            #if early stopping is set
             if meta_config['no_impr_count'] >= patience:
                 print(f"Early stopping triggered after {epoch + 1} epochs.")
                 break
 
+            # print local steps for current epoch
             if config.model.num_workers > 0:
                 if config.model.work.dynamic:
                     meta_config['epoch'] = epoch
@@ -292,13 +331,14 @@ def evaluate_model(config: ModelConfig, test_data: torchvision.datasets, model: 
 if __name__ == '__main__':
     script_dir = Path(__file__).parent
     # Set default Configuration File
-    yaml_path = script_dir / 'config' / 'SlowMo_Lenet.yaml'    
+    yaml_path = script_dir / 'config' / 'dynamic_Lenet.yaml'    
     parser = Parser(yaml_path)
     # Read Configuration File and Parse possible arguments
     config, device = parser.parse_args()
 
     train_data, val_data, test_data = load_cifar100(config)
 
+    # all the selectors
     model = sel_model(config.model)
     device = sel_device(device)
     model = model.to(device)

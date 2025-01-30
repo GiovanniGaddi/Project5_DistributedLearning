@@ -148,6 +148,8 @@ def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75,
     Compute the number of local steps (H) to take using a sigmoid function.
     
     Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
         midpoint (float): The epoch at which the transition occurs most rapidly.
         steepness (float): Controls how sharp the transition is.
     """
@@ -159,24 +161,31 @@ def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75,
     # Sigmoid function for smooth transition
     sigmoid_value = 1 / (1 + math.exp(-steepness * (epoch - midpoint)))
     H = H_min + (H_max - H_min) * sigmoid_value
-    H = max(H_min, min(H_max, round(H)))  # Clamp H within bounds
+    H = max(H_min, min(H_max, round(H)))  # Rounding H
 
     # Compute synchronization steps
     sync_steps = total_steps // H
     remainder = total_steps % H
 
+    # 5% tolerance
     if remainder > 0 and (remainder / total_steps) <= 0.05:
         sync_steps += 1
         H = math.ceil(total_steps / sync_steps)
     else:
         H = math.floor(total_steps / sync_steps)
 
+    # update values
     meta_config['ls'] = H
     # adapt the synchronization steps to the new value
     meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 def reverse_cosine_annealing_ls(config: ModelConfig, meta_config: dict)-> None: 
-    """Compute the inverted Cosine Annealing value for H with exact total_steps."""
+    """Compute the reverse Cosine Annealing value for H with exact total_steps.
+    
+    Args:
+        config (ModelConfig): The configuration object containing model parameters.
+        meta_config (dict): A dictionary containing other configuration.
+    """
     total_steps = meta_config['budget']
     t = meta_config['epoch']
     T = config.epochs
@@ -189,19 +198,21 @@ def reverse_cosine_annealing_ls(config: ModelConfig, meta_config: dict)-> None:
     sync_steps = total_steps // H
     remainder = total_steps % H
 
+    # 5% tolerance
     if remainder > 0 and (remainder / total_steps) <= 0.05:
         sync_steps += 1
         H = math.ceil(total_steps / sync_steps)
     else:
         H = math.floor(total_steps / sync_steps)
 
+    # update values
     meta_config['ls'] = H
     # adapt the synchronization steps to the new value
     meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 
 def avg_loss_ls(config: ModelConfig, meta_config: dict) -> None:
-    if meta_config['loss_history']: #16m03s - 57.19 - 2 workers | 13m40s - 56.50 - 4 workers | 14m58s / 13m14s - 52.34 / 52.25 - 8 workers 
+    if len(meta_config['10loss']) >= 10: #16m03s - 57.19 - 2 workers | 13m40s - 56.50 - 4 workers | 14m58s / 13m14s - 52.34 / 52.25 - 8 workers 
         # compute last 5 epochs average loss
         new_avg = sum(meta_config['loss_history'][-config.work.dynamic.n_losses//2:])/(config.work.dynamic.n_losses//2)
         # compute second-to-last group of 5 epochs average loss
