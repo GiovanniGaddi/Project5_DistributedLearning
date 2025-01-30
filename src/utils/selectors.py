@@ -166,7 +166,7 @@ def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75,
 
 
 def reverse_cosine_annealing_ls(config: ModelConfig, meta_config: dict)-> None: 
-    """Compute the inverted Cosine Annealing value for H with exact total_steps.
+    """Compute the reverse Cosine Annealing value for H with exact total_steps.
     
     Args:
         config (ModelConfig): The configuration object containing model parameters.
