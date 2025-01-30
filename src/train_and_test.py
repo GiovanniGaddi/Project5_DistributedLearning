@@ -78,8 +78,6 @@ def local(config: ModelConfig, meta_config: dict, model: torch.nn.Module, traini
         tuple[list[float], list[float], list[torch.Tensor], list[list[torch.Tensor]]]: A tuple containing:
             - A list of training losses for each worker.
             - A list of training accuracies for each worker as a percentage.
-            - A list of averaged parameters across workers.
-            - A nested list of model parameters for each worker.
     """
     
     losses = [0]*config.num_workers
@@ -156,6 +154,7 @@ def local(config: ModelConfig, meta_config: dict, model: torch.nn.Module, traini
                 if t+meta_config['ls'] > meta_config['budget'] and t+1 != meta_config['budget'] and last_step_skip:
                     pbar_t.close()
                     break
+
         if not last_step_skip and not updated:
             # Get local models parameters
             list_params = [[param for param in list_models[worker_id].parameters()] for worker_id in range(config.num_workers)]
@@ -362,6 +361,7 @@ if __name__ == '__main__':
     if config.experiment.test_only == False:
         best_model, meta_config = train_model(config, train_data, val_data, model, best_model, device, optimizer, scheduler, loss_function, checkpoint)
         best_model_acc = evaluate_model(config.model,test_data, best_model)
+        print()
         print(f'Best Model Test Accuracy: {best_model_acc:.2f}%')
     
     # Test the Model

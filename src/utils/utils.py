@@ -83,6 +83,7 @@ def save_to_csv(config: Config, meta_config: dict, model_accuracy: float, best_m
         ]
         writer.writerow(row)
         print(row)
+        print(f'Result saved into {config.experiment.output}')
 
 def save_to_pickle(config: Config, meta_config: dict) -> None:
     strategy = ""
