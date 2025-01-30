@@ -27,7 +27,7 @@ You can execute the script in the `src` folder using the following command:
 - python train_and_test.py
 
 ### Available Arguments
-
+- `-h, --help`: Show help for arguments and exit.  
 - `--cpu`: Use CPU as the device for training and testing.  
 - `-lr, --learning-rate`: Override the default learning rate.  
 - `-bs, --batch-size`: Override the default batch size.  
