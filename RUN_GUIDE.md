@@ -50,7 +50,8 @@ You can execute the script in the `src` folder using the following command:
 - `-T, --test`: Skip training and run only the testing phase.  
 - `-en, --experiment-name`: Change the name of the experiment.  
 - `-v, --version`: Update the experiment version.
-- 
+
+  
 ## Step 4: Example Full Command
 
 Here is an example of a full command that customizes several arguments:
