@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This paper explores distributed learning techniques for deep neural network training using data parallelism. We evaluate large-batch training optimizers (SGDM, AdamW, LARS, LAMB) and local methods such as LocalSGD, analyzing their trade-offs in terms of scalability, communication overhead, and convergence stability. Experiments conducted on the CIFAR-100 dataset with LeNet5 architecture provide insights into optimizer selection, hyperparameter tuning, and dataset sharding strategies. Additionally, we propose dynamic local step adjustment strategies for LocalSGD to balance accuracy and communication cost.
+This paper explores distributed learning techniques for deep neural network training using data parallelism. We evaluate standard and large-batch training optimizers (SGDM, AdamW, LARS, LAMB) and local methods such as LocalSGD, analyzing their trade-offs in terms of scalability, communication overhead, and convergence stability. Experiments conducted on the CIFAR-100 dataset with LeNet5 architecture provide insights into optimizer selection, hyperparameter tuning, and dataset sharding strategies. Additionally, we propose dynamic local step adjustment strategies for LocalSGD to balance accuracy and communication cost.
 
 ## Table of Contents
 
