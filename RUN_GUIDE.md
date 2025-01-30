@@ -18,7 +18,7 @@ Ensure that you have all the dependencies installed. It is recommended to create
 
 ## Step 2: Configuration file
 
-Before running the script, you can have a look at configuration YAML file (`config/Distributed_Lenet.yaml`). This file contains the settings for your model and experiment. 
+Before running the script, you can have a look at configuration YAML file (`e.g., config/distributed_Lenet.yaml`). This file contains the settings for your model and experiment. 
 
 ## Step 3: Running the script
 
