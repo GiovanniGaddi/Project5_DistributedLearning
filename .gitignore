@@ -173,3 +173,5 @@ plots/
 checkpoints/
 
 test*
+
+pickles/
