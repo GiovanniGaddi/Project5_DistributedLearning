@@ -34,7 +34,7 @@ You can execute the script in the `src` folder using the following command:
 - `-bs, --batch-size`: Override the default batch size.  
 - `-ep, --epochs`: Override the default number of epochs for training (which is 150).  
 - `-opt, --optimizer`: Override the default optimizer: you can choose among AdamW, SGDM, LARS, LAMB. Local methods will not use this argument, as LocalSGD is required.
-- `-sch, --scheduler`: Override the default learning rate scheduler (we used CosineAnnealingLR, but we implemented PolynomialDecayLR as well).  
+- `-sch, --scheduler`: Override the default learning rate scheduler (we used CosineAnnealingLR).  
 - `-p, --patience`: Override the early stopping patience: we generally set it to 0, but it can be useful sometimes in order to prevent overfitting.  
 - `-wu, --warmup`: Override the number of warm-up steps for the learning rate scheduler: this is useful for large batch optimizers. 
 - `-wd, --weight-decay`: Override the default weight decay.  
