@@ -170,5 +170,6 @@ share/
 src/data/
 data/
 plots/
+checkpoints/
 
 test*

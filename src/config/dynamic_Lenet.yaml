@@ -7,19 +7,22 @@ model:
   optimizer: SGDM
   scheduler: CosineAnnealingLR
   test: False
-  warmup: 15
-  patience: 15
+  warmup: 0
+  patience: 0
   weight_decay: 1e-3
   slowmo:
     learning_rate: 1.0
     momentum: 0.6
   work: 
-    sync_steps: 44
-    local_steps: 4
+    sync_steps: 22
+    local_steps: 8
     batch_size: 64
+    dynamic:
+      strategy: LossLS
+      n_losses: 3
   num_workers: 4
 experiment:
   name: train_lenet_cifar100
   resume: False
   version: 0.0
-  output: 'dynamicGG.csv'
+  output: dynamic.csv

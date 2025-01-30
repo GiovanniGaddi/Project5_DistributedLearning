@@ -54,10 +54,6 @@ def sel_scheduler(config:ModelConfig, optimizer: torch.optim.Optimizer, len_trai
         main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=config.epochs - config.warmup, eta_min=0
         )
-    elif config.scheduler == 'PolynomialDecayLR':
-        main_scheduler = optim.lr_scheduler.PolynomialLR(
-            optimizer, total_iters=config.epochs * len_train_data, power=2.0
-        )
     else:
         raise ValueError(f"Unsupported scheduler: {config.scheduler}")
 
@@ -93,14 +89,14 @@ def asc_linear_ls(config: ModelConfig, meta_config: dict)-> None:
     Linearly maps the epoch to the range of local steps: from 4 to 64 
     '''
     meta_config['ls'] = (int(meta_config['epoch']/(config.epochs-1)*120+1)//2 + 4)
-    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+    meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 def desc_linear_ls(config: ModelConfig, meta_config: dict)-> None:
     '''
     Linearly maps the epoch to the range of local steps: from 64 to 4 
     '''
     meta_config['ls'] = int(((1.0-meta_config['epoch']/(config.epochs-1))*120+1)//2 + 4)
-    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+    meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 def asc_binary_ls(config: ModelConfig, meta_config: dict)-> None:
     '''
@@ -108,7 +104,7 @@ def asc_binary_ls(config: ModelConfig, meta_config: dict)-> None:
     '''
     power2 = (int(meta_config['epoch']/(config.epochs-1)*8+1)//2 + 2)
     meta_config['ls'] = 2**power2
-    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+    meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 def desc_binary_ls(config: ModelConfig, meta_config: dict)-> None:
     '''
@@ -116,7 +112,7 @@ def desc_binary_ls(config: ModelConfig, meta_config: dict)-> None:
     '''
     power2 = int(((1.0-meta_config['epoch']/(config.epochs-1))*8+1)//2 + 2)
     meta_config['ls'] = 2**power2
-    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+    meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 def improvement_ls(config: ModelConfig, meta_config: dict) -> None:
     '''
@@ -145,7 +141,7 @@ def loss_ls(config: ModelConfig, meta_config: dict,) -> None:
             if meta_config['ls'] < 64:
                 meta_config['ls'] *= 2
     # adapt the synchronization steps to the new value
-    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+    meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75, steepness: float = 0.5)-> None:
     """
@@ -176,9 +172,8 @@ def sigmoid_based_ls(config: ModelConfig, meta_config: dict, midpoint: int = 75,
         H = math.floor(total_steps / sync_steps)
 
     meta_config['ls'] = H
-    meta_config['ss'] = sync_steps
-    meta_config['tot_ss'] += sync_steps
-
+    # adapt the synchronization steps to the new value
+    meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 def reverse_cosine_annealing_ls(config: ModelConfig, meta_config: dict)-> None: 
     """Compute the inverted Cosine Annealing value for H with exact total_steps."""
@@ -201,61 +196,24 @@ def reverse_cosine_annealing_ls(config: ModelConfig, meta_config: dict)-> None:
         H = math.floor(total_steps / sync_steps)
 
     meta_config['ls'] = H
-    meta_config['ss'] = sync_steps
-    meta_config['tot_ss'] += sync_steps
+    # adapt the synchronization steps to the new value
+    meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
-def avg_param_dev_ls(config: ModelConfig, meta_config: dict, threshold=0.5): #threshold to be determined
-    """
-    Update sync steps (T) and local steps (H) based on avg params deviation 
-
-    Args:
-        threshold: to decide whether to update
-    """
-    K = config.num_workers
-    H = config.work.local_steps
-    total_steps = meta_config['budget']
-    T = total_steps/H
-
-    num_params = len(meta_config['avg_params'])
-    total_deviation = 0.0
-
-    # Compute deviation w.r.t. average pparams
-    for k in range(K):
-        worker_deviation = 0.0
-        for param_grad, avg_grad in zip(meta_config['list_params'][k], meta_config['avg_params']):
-            worker_deviation += torch.norm(param_grad - avg_grad).item()  # applying norm
-        total_deviation += worker_deviation / num_params
-
-    avg_deviation = total_deviation / K
-
-    print(avg_deviation)
-
-    # Updates based on avg dev
-    if avg_deviation < threshold:  # if gradient is steady, increase H
-        H = min(H * 2, total_steps//2)  # double H
-        T = max(2, total_steps//H)  # update T to keep total_steps constant
-    elif avg_deviation > threshold*2:  # otherwise reduce H (so more sync)
-        H = max(4, H // 2)  # half H
-        T = max(4, total_steps // H)  # update T to keep total_steps constant
-
-    meta_config['ls'] = H
-    meta_config['ss'] = T
-    meta_config['tot_ss'] += T
 
 def avg_loss_ls(config: ModelConfig, meta_config: dict) -> None:
     if meta_config['loss_history']: #16m03s - 57.19 - 2 workers | 13m40s - 56.50 - 4 workers | 14m58s / 13m14s - 52.34 / 52.25 - 8 workers 
         # compute last 5 epochs average loss
-        new_avg = sum(meta_config['loss_history'][-config.model.work.dynamic.n_losses//2:])/(config.model.work.dynamic.n_losses//2)
+        new_avg = sum(meta_config['loss_history'][-config.work.dynamic.n_losses//2:])/(config.work.dynamic.n_losses//2)
         # compute second-to-last group of 5 epochs average loss
-        old_avg = sum(meta_config['loss_history'][-config.model.work.dynamic.n_losses:-config.model.work.dynamic.n_losses//2])/(config.model.work.dynamic.n_losses//2)
-        if new_avg > old_avg and config.model.work.local_steps > 4:
+        old_avg = sum(meta_config['loss_history'][-config.work.dynamic.n_losses:-config.work.dynamic.n_losses//2])/(config.work.dynamic.n_losses//2)
+        if new_avg > old_avg and meta_config['ls'] > 4:
             # half the local steps (min 4 but could be as low as 1)
                 meta_config['ls'] //= 2
-        elif new_avg < old_avg and config.model.work.local_steps < 64:
+        elif new_avg < old_avg and meta_config['ls'] < 64:
             # double the local steps (max 64 but could be higher)
                 meta_config['ls'] *= 2
     # adapt the synchronization steps to the new value
-    meta_config['tot_ss'] += meta_config['budget'] // meta_config['ls']
+    meta_config['tot_ss'] += (meta_config['budget'] + meta_config['ls'] - 1)// meta_config['ls']
 
 
 
@@ -268,8 +226,6 @@ def sel_dynamic_ls(config: ModelConfig)-> callable:
         return reverse_cosine_annealing_ls
     elif config.work.dynamic.strategy == 'Sigmoid':
         return sigmoid_based_ls
-    elif config.work.dynamic.strategy == 'AvgParamDev':
-        return avg_param_dev_ls
     elif config.work.dynamic.strategy == 'ImprLS':
         return improvement_ls
     elif config.work.dynamic.strategy == 'ALin':
@@ -278,7 +234,7 @@ def sel_dynamic_ls(config: ModelConfig)-> callable:
         return desc_linear_ls
     elif config.work.dynamic.strategy == 'ABin':
         return asc_binary_ls
-    elif config.work.dynamic.strategy == 'Dlin':
+    elif config.work.dynamic.strategy == 'DBin':
         return desc_binary_ls
     else:
         raise ValueError(f"Unsupported local steps scheduler: {config.work.dynamic.strategy}")

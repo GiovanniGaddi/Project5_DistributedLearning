@@ -1,0 +1,22 @@
+model:
+  name: LeNet
+  epochs: 150
+  batch_size: 64
+  learning_rate: 4e-2
+  loss: CSE
+  optimizer: SGDM
+  scheduler: CosineAnnealingLR
+  test: False
+  warmup: 0
+  patience: 0
+  weight_decay: 1e-3
+  num_workers: 4
+  work: 
+    sync_steps: 88
+    local_steps: 4
+    batch_size: 64
+experiment:
+  name: train_lenet_cifar100
+  resume: False
+  version: 0.0
+  output: distributed.csv

@@ -24,20 +24,18 @@ class Parser():
             'LAMB': 'Layer-wise Adaptive Moments for Batch training optimizer, used for large-batch training.'
         }
         self.valid_schedulers = {
-            'CosineAnnealingLR': 'Cosine Annealing scheduler with learning rate decay.',
-            'PolynomialDecayLR': 'Polynomial Decay scheduler.'
+            'CosineAnnealingLR': 'Cosine Annealing scheduler with learning rate decay.'
         }
         self.valid_dynamic = {
             'LossLS': 'Loss-based local step scheduler.',
             'AvgLossLS': 'Average loss-based local step scheduler.',
             'RevCosAnn': 'Reverse cosine annealing local step scheduler.',
             'Sigmoid': 'Sigmoid-based local step scheduler.',
-            'AvgParamDev': 'Average parameter deviation-based local step scheduler.',
             'ImprLS': 'Improvement-based local step scheduler.',
             'ALin': 'Ascending linear local step scheduler.',
             'DLin': 'Descending linear local step scheduler.',
             'ABin': 'Ascending binary local step scheduler.',
-            'Dlin': 'Descending binary local step scheduler.'
+            'DBin': 'Descending binary local step scheduler.'
         }
 
         self.parser.add_argument('-c', '--config', type=Path, required=True if config_path is None else False, default=config_path, dest='CONFIG', help='Configuration file Path')
@@ -117,6 +115,9 @@ class Parser():
 
             if self.args.SLR is not None:
                 config.model.slowmo.learning_rate = self.args.SLR
+        
+        elif self.args.SM is not None or self.args.SLR is not None:
+            raise argparse.ArgumentError(None, "It's not possibe to modify SlowMo Parameters if SlowMo is not Setin the configuration File")
 
         if self.args.NW is not None:
                 config.model.num_workers = self.args.NW
@@ -140,9 +141,9 @@ class Parser():
                     if self.args.DNL is not None:
                         config.model.work.dynamic.n_losses = self.args.DNL
 
-            else:
-                config.model.work.dynamic = None
-        
+            elif self.args.DWLS is not None or self.args.DNL is not None:
+                raise argparse.ArgumentError(None, "It's not possibe to modify Dynamic Parameters if Dynamic is not Set in the configuration File")
+            
         else:
             config.model.num_workers = 0
             config.model.work = None

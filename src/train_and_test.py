@@ -12,30 +12,7 @@ from utils.utils import save_checkpoint, load_checkpoint, deepcopy_model, save_t
 from utils.load_dataset import load_cifar100
 from utils.selectors import sel_device, sel_loss, sel_model, sel_optimizer, sel_scheduler, sel_dynamic_ls
 
-# [ ] # Documentation
-# [ ] # Comments
-# [ ] # Finishing paper
-# [ ] # Run guide
-
-# [x] # Graph best cases (Silvano)
-# [x] # Local Steps Graph (Grasso che cola ma mezza fatta, Silvano)
-# [ ] # Graph centralized (Gio)
-# [ ] # Add linear Experiments (Gio)
-# [ ] # Slowmo beta (Silvano)
-# [ ] # Tabelle Results (Silvano, Nicolò)
-# [x] # Check save/load checkpoint (Gio)
-# [x] # Check pretrained (Gio)
-# [x] # Check only-Test (Gio)
-# [x] # Skip fix (Gio)
-# [x] # Parser (Gio)
-# [ ] # ReadME (Nicolò)
-# [ ] # Commenti
-# [ ] # Public the github
-# [ ] # Final check
-
-
 last_step_skip = False
-
 
 def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module, train_loader: list[DataLoader], optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
     ''' Centralized Model Training Function '''
@@ -65,8 +42,7 @@ def centralized(config: ModelConfig, meta_config: dict,  model: torch.nn.Module,
 
     return [running_loss], [100 * correct/total]
 
-
-def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, training_data_splits: DataLoader, optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
+def localSGD(config: ModelConfig, meta_config: dict, model: torch.nn.Module, training_data_splits: DataLoader, optimizer: torch.optim.Optimizer, criterion, device: str, pbar: tqdm) -> tuple[list[float], list[float]]:
     ''' Distributed Model Training Function'''
     losses = [0]*config.num_workers
     totals = [0]*config.num_workers
@@ -158,22 +134,13 @@ def localSDG(config: ModelConfig, meta_config: dict, model: torch.nn.Module, tra
                         param.grad = slowmo_param.clone()
                         param.data -= alpha *model.learning_rate * param.grad
 
-
-    # Meta Parameters for Dynamic Local Step Scheduler
-    if config.work.dynamic is not None:
-        if config.work.dynamic.strategy == "AvgParamDev":
-            meta_config['avg_params'] = avg_params
-            meta_config['list_params'] = list_params
-
     return losses, [100*correct/total for correct, total in zip(corrects, totals)]
-
 
 def defineTraining(config: ModelConfig) -> callable:
     if config.num_workers > 0:
-        return localSDG
+        return localSGD
     else:
         return centralized
-
 
 # Training loop with validation
 def train_model(config: Config, train_data: torchvision.datasets, val_data: torchvision.datasets, model: torch.nn.Module, best_model: torch.nn.Module, device: str, optimizer: torch.optim.Optimizer, scheduler: torch.optim.lr_scheduler._LRScheduler, criterion, checkpoint: dict = None) -> tuple[torch.nn.Module, dict]:
@@ -271,7 +238,6 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
                 if config.model.work.dynamic:
                     meta_config['epoch'] = epoch
                     update_steps(config.model, meta_config)
-                    pbar.write(f"Epoch {meta_config['epoch']}: {meta_config['ls']}")
             
             save_checkpoint(config, epoch, model, best_model, optimizer, scheduler, val_acc, best_acc)
     
@@ -285,7 +251,6 @@ def train_model(config: Config, train_data: torchvision.datasets, val_data: torc
     plot_metrics("distributed" if config.model.num_workers > 0 else "centralized", config, train_losses, train_accuracies, val_losses, val_accuracies)
     return best_model, meta_config
     
-
 # Validation function
 def validate_model(val_loader: DataLoader, criterion, model: torch.nn.Module) -> tuple[float,float]:
     model.eval()  
@@ -307,7 +272,6 @@ def validate_model(val_loader: DataLoader, criterion, model: torch.nn.Module) ->
     loss = running_loss / len(val_loader)
     return loss, accuracy
     
-
 # Evaluate model performance on test set
 def evaluate_model(config: ModelConfig, test_data: torchvision.datasets, model: torch.nn.Module) -> float:
     model.eval()  # Set model to evaluation mode
@@ -324,7 +288,6 @@ def evaluate_model(config: ModelConfig, test_data: torchvision.datasets, model: 
 
     accuracy = 100 * correct / total
     return accuracy
-
 
 if __name__ == '__main__':
     script_dir = Path(__file__).parent

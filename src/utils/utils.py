@@ -58,10 +58,12 @@ def save_to_csv(config: Config, meta_config: dict, model_accuracy: float, best_m
                 'Model Name', 'Epochs', 'Batch Size', 'Learning Rate', 'Loss', 'Optimizer', 
                 'Scheduler', 'Warmup', 'Patience', 'Weight Decay', 'Pretrained',
                 'Total Sync Steps','Work Sync Steps', 'Work Local Steps', 'Work Batch Size', 'Num Workers',
-                'Slowmo LR', 'SlowMo Momentum', 'Dynamic LS',
+                'Slowmo LR', 'SlowMo Momentum', 'Dynamic Strategy', 'Dynamic N Losses',
                 'Model Accuracy', 'Best Model Accuracy'
             ])
         
+        
+
         # Write model configuration and results to CSV
         row = [
             config.model.name, config.model.epochs, config.model.batch_size, config.model.learning_rate, 
@@ -74,7 +76,8 @@ def save_to_csv(config: Config, meta_config: dict, model_accuracy: float, best_m
             config.model.num_workers,
             config.model.slowmo.learning_rate if config.model.slowmo else config.model.learning_rate,
             config.model.slowmo.momentum if config.model.slowmo else 0,
-            config.model.work.dynamic if config.model.work else False,
+            config.model.work.dynamic.strategy if config.model.work and config.model.work.dynamic else None,
+            config.model.work.dynamic.n_losses if config.model.work and config.model.work.dynamic else None,
             model_accuracy,  # Pass model accuracy
             best_model_accuracy  # Pass best model accuracy
         ]
